@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin | Phytotherapy Assignment</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="app-header">
+        <div class="brand-row">
+          <img src="/logo.png" alt="Assignment logo" class="brand-logo" onerror="this.style.display='none'" />
+          <div>
+            <h1>Phytotherapy Assignment Admin</h1>
+            <p class="subtitle">No-auth admin URL with token query string.</p>
+          </div>
+        </div>
+      </header>
+
+      <section id="admin-warning" class="card warning" hidden></section>
+
+      <section class="card">
+        <h2>Submissions</h2>
+        <p class="hint">Create, edit, or delete any team submission.</p>
+
+        <form id="admin-submission-form" class="form-grid">
+          <input id="submission-id" type="hidden" />
+
+          <label>
+            Group Number (1-4)
+            <input id="admin-course-group" type="number" min="1" max="4" required />
+          </label>
+
+          <label>
+            Team Number (1-20)
+            <input id="admin-team-number" type="number" min="1" max="20" required />
+          </label>
+
+          <label>
+            Leader Name
+            <input id="admin-leader-name" type="text" required />
+          </label>
+
+          <label>
+            Leader Email
+            <input id="admin-leader-email" type="email" required />
+          </label>
+
+          <label>
+            Leader Phone
+            <input id="admin-leader-phone" type="tel" required />
+          </label>
+
+          <label class="span-2">
+            Drug
+            <select id="admin-drug-id" required></select>
+          </label>
+
+          <label class="span-2">
+            Students (one per line: <code>ID, Name</code>)
+            <textarea id="admin-students" rows="6" required></textarea>
+          </label>
+
+          <div class="span-2 actions">
+            <button type="submit" class="btn btn-primary">Save Submission</button>
+            <button type="button" id="clear-submission-form" class="btn btn-secondary">New Submission</button>
+          </div>
+        </form>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Group</th>
+                <th>Team</th>
+                <th>Leader</th>
+                <th>Drug</th>
+                <th>Students</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="submissions-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Drug List</h2>
+        <p class="hint">Add drugs and mark them active/inactive.</p>
+
+        <form id="new-drug-form" class="inline-form">
+          <input id="new-drug-name" type="text" placeholder="Drug name" required />
+          <button type="submit" class="btn btn-primary">Add Drug</button>
+        </form>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Active</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="drugs-table"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div id="admin-status" class="status" aria-live="polite"></div>
+    </main>
+
+    <script src="/admin.js"></script>
+  </body>
+</html>

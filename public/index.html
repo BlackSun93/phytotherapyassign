@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Phytotherapy Assignment</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="app-header">
+        <div class="brand-row">
+          <img src="/logo.png" alt="Assignment logo" class="brand-logo" onerror="this.style.display='none'" />
+          <div>
+            <h1>Phytotherapy Assignment</h1>
+            <p class="subtitle">Teams submit once, choose only available drugs, and lock selection instantly.</p>
+          </div>
+        </div>
+      </header>
+
+      <section class="card">
+        <h2>Team Submission</h2>
+        <p class="hint">Choose an available drug and submit your full team details.</p>
+
+        <form id="submission-form" class="form-grid">
+          <label>
+            Group Number (1-4)
+            <input id="course-group" type="number" min="1" max="4" required />
+          </label>
+
+          <label>
+            Team Number (1-20)
+            <input id="team-number" type="number" min="1" max="20" required />
+          </label>
+
+          <label>
+            Team Leader Name
+            <input id="leader-name" type="text" required />
+          </label>
+
+          <label>
+            Team Leader Email
+            <input id="leader-email" type="email" required />
+          </label>
+
+          <label>
+            Team Leader Phone
+            <input id="leader-phone" type="tel" required />
+          </label>
+
+          <label class="span-2">
+            Select Drug
+            <select id="drug-id" required></select>
+          </label>
+
+          <div class="span-2">
+            <div class="students-head">
+              <h3>Students (ID + Name)</h3>
+              <button type="button" id="add-student" class="btn btn-secondary">Add Student</button>
+            </div>
+            <div id="students-list" class="students-list"></div>
+          </div>
+
+          <div class="span-2 actions">
+            <button id="submit-button" type="submit" class="btn btn-primary">Submit Team</button>
+          </div>
+        </form>
+
+        <div id="status" class="status" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <h2>Drug Availability</h2>
+        <div id="drugs-legend" class="legend"></div>
+      </section>
+    </main>
+
+    <script src="/student.js"></script>
+  </body>
+</html>
