@@ -89,7 +89,7 @@ function addOrSaveStudent() {
 
   if (editingStudentIndex >= 0) {
     students[editingStudentIndex] = parsed;
-    selectedStudentIndex = editingStudentIndex;
+    selectedStudentIndex = -1;
     resetStudentEditor();
     renderStudents();
     setStatus('Student updated.', 'success');
@@ -97,7 +97,7 @@ function addOrSaveStudent() {
   }
 
   students.push(parsed);
-  selectedStudentIndex = students.length - 1;
+  selectedStudentIndex = -1;
   studentIdEntryInput.value = '';
   studentNameEntryInput.value = '';
   renderStudents();
