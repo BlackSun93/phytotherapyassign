@@ -31,5 +31,3 @@ create trigger set_group_submissions_updated_at
 before update on public.group_submissions
 for each row
 execute function public.set_updated_at_timestamp();
-
-alter table public.group_submissions enable row level security;

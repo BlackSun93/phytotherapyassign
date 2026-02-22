@@ -1,65 +1,55 @@
 # Phytotherapy Assignment Platform
 
-Very simple submission platform for student teams:
-- Page 1 (`/`): choose an available drug from a visual card list.
-- Page 2 (`/team`): submit team/leader/students for the selected drug.
-- Drug list is hardcoded in the server (`HARDCODED_DRUGS`).
-- Supabase is used only to save/load submission locks and team data.
-- Admin page: no login, only URL token (e.g. `/admin?token=...`) to edit submissions.
+Simple 2-page flow for student teams:
+- Page 1 (`/`): choose one available drug from a visual card list.
+- Page 2 (`/team`): submit team, leader info, and students.
+- Drug list is hardcoded in the backend.
+- Database is used only to save submissions and lock selected drugs.
 
-## 1) Supabase Setup
+## Database (Neon via Vercel Marketplace)
 
-1. Create a Supabase project.
-2. Open SQL Editor and run:
+1. Create/connect a Neon database from Vercel Marketplace.
+2. In Neon SQL editor, run:
    - `/Users/mohamedosama/phytotherapyassign/supabase/schema.sql`
-3. Copy your project URL and service role key from Supabase project settings.
-4. If your DB already exists from older versions, run:
+3. If you are migrating an older DB version, run:
    - `/Users/mohamedosama/phytotherapyassign/supabase/migrate_to_hardcoded_drugs.sql`
 
-## 2) Project Setup
+## Environment Variables
 
-1. Create env file:
+Set these locally in `.env` and in Vercel project settings:
+- `DATABASE_URL`
+- `ADMIN_DASHBOARD_TOKEN`
+
+Optional:
+- `PORT` (local only)
+
+Copy template:
 ```bash
 cp /Users/mohamedosama/phytotherapyassign/.env.example /Users/mohamedosama/phytotherapyassign/.env
 ```
-2. Edit `/Users/mohamedosama/phytotherapyassign/.env` with real values:
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `ADMIN_DASHBOARD_TOKEN`
 
-## 2.1) Vercel Environment Variables
-
-In Vercel project settings, add the same variables:
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `ADMIN_DASHBOARD_TOKEN`
-
-This repository uses `/Users/mohamedosama/phytotherapyassign/vercel.json` to route all requests (including `/api/*`) through `server.js`.
-
-## 3) Add Your Logo
-
-Place your logo file as:
-- `/Users/mohamedosama/phytotherapyassign/public/logo.png`
-
-The pages already render this file next to the main title.
-
-## 4) Run
+## Run Locally
 
 ```bash
 cd /Users/mohamedosama/phytotherapyassign
+npm install
 npm start
 ```
 
 Open:
-- Drug selection page: [http://localhost:3000](http://localhost:3000)
-- Team submission page: [http://localhost:3000/team](http://localhost:3000/team)
-- Admin page: `http://localhost:3000/admin?token=YOUR_ADMIN_DASHBOARD_TOKEN`
+- Drug list: [http://localhost:3000](http://localhost:3000)
+- Team form: [http://localhost:3000/team](http://localhost:3000/team)
+- Admin: `http://localhost:3000/admin?token=YOUR_ADMIN_DASHBOARD_TOKEN`
+
+## Deploy To Vercel
+
+This repo includes `/Users/mohamedosama/phytotherapyassign/vercel.json`, routing all paths (including `/api/*`) to `server.js`.
+
+After setting env vars, deploy branch `main`.
 
 ## Notes
 
-- Hardcoded 20-drug list is defined in:
-  - `/Users/mohamedosama/phytotherapyassign/server.js`
-- Team constraints in this version:
-  - `Team Number`: 1..20
+- Hardcoded 20-drug list is in `/Users/mohamedosama/phytotherapyassign/server.js` (`HARDCODED_DRUGS`).
+- Team number range is `1..20`.
 - Students are stored as JSON (`student_id`, `student_name`).
-- Admin can add/edit/delete submissions.
+- Admin can add/edit/delete submissions only.
