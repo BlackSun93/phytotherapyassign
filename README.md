@@ -12,6 +12,8 @@ Very simple submission platform for student teams:
 2. Open SQL Editor and run:
    - `/Users/mohamedosama/phytotherapyassign/supabase/schema.sql`
 3. Copy your project URL and service role key from Supabase project settings.
+4. If your DB already exists and you only want to add/update 20 placeholders, run:
+   - `/Users/mohamedosama/phytotherapyassign/supabase/seed_placeholder_drugs.sql`
 
 ## 2) Project Setup
 
