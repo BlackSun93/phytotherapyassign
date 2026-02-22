@@ -2,7 +2,8 @@ const form = document.getElementById('submission-form');
 const statusEl = document.getElementById('status');
 const submitButton = document.getElementById('submit-button');
 const drugSelect = document.getElementById('drug-id');
-const studentEntryInput = document.getElementById('student-entry');
+const studentIdEntryInput = document.getElementById('student-id-entry');
+const studentNameEntryInput = document.getElementById('student-name-entry');
 const addStudentBtn = document.getElementById('add-student');
 const editSelectedBtn = document.getElementById('edit-selected');
 const removeSelectedBtn = document.getElementById('remove-selected');
@@ -23,20 +24,9 @@ function setStatus(message, type = 'success') {
   statusEl.className = `status ${type}`;
 }
 
-function parseStudentEntry(text) {
-  const trimmed = (text || '').trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const commaIndex = trimmed.indexOf(',');
-  if (commaIndex === -1) {
-    return null;
-  }
-
-  const studentId = trimmed.slice(0, commaIndex).trim();
-  const studentName = trimmed.slice(commaIndex + 1).trim();
-
+function parseStudentEntry(studentIdValue, studentNameValue) {
+  const studentId = (studentIdValue || '').trim();
+  const studentName = (studentNameValue || '').trim();
   if (!studentId || !studentName) {
     return null;
   }
@@ -56,7 +46,8 @@ function updateStudentActionButtons() {
 function resetStudentEditor() {
   editingStudentIndex = -1;
   addStudentBtn.textContent = 'Add Student';
-  studentEntryInput.value = '';
+  studentIdEntryInput.value = '';
+  studentNameEntryInput.value = '';
 }
 
 function renderStudents() {
@@ -90,9 +81,9 @@ function renderStudents() {
 }
 
 function addOrSaveStudent() {
-  const parsed = parseStudentEntry(studentEntryInput.value);
+  const parsed = parseStudentEntry(studentIdEntryInput.value, studentNameEntryInput.value);
   if (!parsed) {
-    setStatus('Use this format for student: ID, Name', 'error');
+    setStatus('Please enter both student ID and student name.', 'error');
     return;
   }
 
@@ -107,7 +98,8 @@ function addOrSaveStudent() {
 
   students.push(parsed);
   selectedStudentIndex = students.length - 1;
-  studentEntryInput.value = '';
+  studentIdEntryInput.value = '';
+  studentNameEntryInput.value = '';
   renderStudents();
   setStatus('Student added.', 'success');
 }
@@ -118,10 +110,11 @@ function editSelectedStudent() {
   }
 
   const selected = students[selectedStudentIndex];
-  studentEntryInput.value = `${selected.student_id}, ${selected.student_name}`;
+  studentIdEntryInput.value = selected.student_id;
+  studentNameEntryInput.value = selected.student_name;
   editingStudentIndex = selectedStudentIndex;
   addStudentBtn.textContent = 'Save Student';
-  studentEntryInput.focus();
+  studentIdEntryInput.focus();
 }
 
 function removeSelectedStudent() {
@@ -209,7 +202,14 @@ async function loadDrugs() {
 
 addStudentBtn.addEventListener('click', addOrSaveStudent);
 
-studentEntryInput.addEventListener('keydown', (event) => {
+studentIdEntryInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    addOrSaveStudent();
+  }
+});
+
+studentNameEntryInput.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
     addOrSaveStudent();
