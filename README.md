@@ -3,8 +3,9 @@
 Very simple submission platform for student teams:
 - Page 1 (`/`): choose an available drug from a visual card list.
 - Page 2 (`/team`): submit team/leader/students for the selected drug.
-- Drug lock: first submission gets the drug (unique constraint in DB).
-- Admin page: no login, only URL token (e.g. `/admin?token=...`) to edit submissions and drugs.
+- Drug list is hardcoded in the server (`HARDCODED_DRUGS`).
+- Supabase is used only to save/load submission locks and team data.
+- Admin page: no login, only URL token (e.g. `/admin?token=...`) to edit submissions.
 
 ## 1) Supabase Setup
 
@@ -12,8 +13,8 @@ Very simple submission platform for student teams:
 2. Open SQL Editor and run:
    - `/Users/mohamedosama/phytotherapyassign/supabase/schema.sql`
 3. Copy your project URL and service role key from Supabase project settings.
-4. If your DB already exists and you only want to add/update 20 placeholders, run:
-   - `/Users/mohamedosama/phytotherapyassign/supabase/seed_placeholder_drugs.sql`
+4. If your DB already exists from older versions, run:
+   - `/Users/mohamedosama/phytotherapyassign/supabase/migrate_to_hardcoded_drugs.sql`
 
 ## 2) Project Setup
 
@@ -47,7 +48,9 @@ Open:
 
 ## Notes
 
+- Hardcoded 20-drug list is defined in:
+  - `/Users/mohamedosama/phytotherapyassign/server.js`
 - Team constraints in this version:
   - `Team Number`: 1..20
 - Students are stored as JSON (`student_id`, `student_name`).
-- Admin can add/edit/delete submissions and drugs.
+- Admin can add/edit/delete submissions.

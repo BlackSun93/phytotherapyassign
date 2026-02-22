@@ -8,7 +8,10 @@ const editSelectedBtn = document.getElementById('edit-selected');
 const removeSelectedBtn = document.getElementById('remove-selected');
 const studentsListEl = document.getElementById('students-list');
 
-const preferredDrugId = new URLSearchParams(window.location.search).get('drugId') || '';
+const preferredDrugKey =
+  new URLSearchParams(window.location.search).get('drugKey') ||
+  new URLSearchParams(window.location.search).get('drugId') ||
+  '';
 
 let drugs = [];
 let students = [];
@@ -143,7 +146,7 @@ function getAvailableDrugsWithSelection() {
     if (!drug.is_taken) {
       return true;
     }
-    return drug.id === preferredDrugId;
+    return drug.key === preferredDrugKey;
   });
 }
 
@@ -160,7 +163,7 @@ function renderDrugOptions() {
 
   availableDrugs.forEach((drug) => {
     const option = document.createElement('option');
-    option.value = drug.id;
+    option.value = drug.key;
     option.textContent = drug.name;
     drugSelect.appendChild(option);
   });
@@ -171,12 +174,12 @@ function renderDrugOptions() {
     return;
   }
 
-  const selectedDrug = availableDrugs.find((drug) => drug.id === preferredDrugId);
+  const selectedDrug = availableDrugs.find((drug) => drug.key === preferredDrugKey);
   if (selectedDrug) {
-    drugSelect.value = selectedDrug.id;
+    drugSelect.value = selectedDrug.key;
   } else {
     drugSelect.selectedIndex = 1;
-    if (preferredDrugId) {
+    if (preferredDrugKey) {
       setStatus('Selected drug is no longer available. Please choose another one.', 'error');
     }
   }
@@ -230,7 +233,7 @@ form.addEventListener('submit', async (event) => {
     leaderName: document.getElementById('leader-name').value.trim(),
     leaderEmail: document.getElementById('leader-email').value.trim(),
     leaderPhone: document.getElementById('leader-phone').value.trim(),
-    drugId: drugSelect.value,
+    drugKey: drugSelect.value,
     students,
   };
 

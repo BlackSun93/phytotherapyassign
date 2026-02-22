@@ -20,7 +20,7 @@ function renderDrugs(drugs) {
   gridEl.innerHTML = '';
 
   if (!drugs.length) {
-    setStatus('No drugs found in the database.', 'error');
+    setStatus('No hardcoded drugs found.', 'error');
     return;
   }
 
@@ -45,7 +45,7 @@ function renderDrugs(drugs) {
     details.className = 'muted';
 
     if (!drug.is_active) {
-      details.textContent = 'This drug is currently disabled by admin.';
+      details.textContent = 'This drug is currently inactive.';
     } else if (drug.is_taken && drug.taken_by) {
       details.textContent = `Locked by Team ${drug.taken_by.team_number}.`;
     } else {
@@ -59,7 +59,7 @@ function renderDrugs(drugs) {
     action.disabled = !drug.is_active || drug.is_taken;
 
     action.addEventListener('click', () => {
-      window.location.href = `/team?drugId=${encodeURIComponent(drug.id)}`;
+      window.location.href = `/team?drugKey=${encodeURIComponent(drug.key)}`;
     });
 
     card.append(header, details, action);

@@ -53,6 +53,17 @@ const MIME_TYPES = {
   '.gif': 'image/gif',
 };
 
+const HARDCODED_DRUGS = Array.from({ length: 20 }, (_, index) => {
+  const number = String(index + 1).padStart(2, '0');
+  return {
+    key: `drug-${number}`,
+    name: `Drug ${number}`,
+    is_active: true,
+  };
+});
+
+const HARDCODED_DRUGS_BY_KEY = new Map(HARDCODED_DRUGS.map((drug) => [drug.key, drug]));
+
 function hasSupabaseConfig() {
   return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 }
@@ -155,6 +166,14 @@ function toCleanString(value) {
   return String(value ?? '').trim();
 }
 
+function normalizeDrugKey(value) {
+  return toCleanString(value).toLowerCase();
+}
+
+function getHardcodedDrugByKey(value) {
+  return HARDCODED_DRUGS_BY_KEY.get(normalizeDrugKey(value)) || null;
+}
+
 function normalizeStudents(students) {
   if (!Array.isArray(students)) {
     return [];
@@ -224,12 +243,21 @@ function normalizeSubmissionPayload(input, { partial = false } = {}) {
     }
   }
 
-  if (!partial || payload.drugId !== undefined || payload.drug_id !== undefined) {
-    const drugId = toCleanString(payload.drugId ?? payload.drug_id);
-    if (!isUuid(drugId)) {
-      errors.push('A valid drug ID is required.');
+  if (
+    !partial ||
+    payload.drugKey !== undefined ||
+    payload.drug_key !== undefined ||
+    payload.drugId !== undefined ||
+    payload.drug_id !== undefined
+  ) {
+    const rawDrugKey = payload.drugKey ?? payload.drug_key ?? payload.drugId ?? payload.drug_id;
+    const selectedDrug = getHardcodedDrugByKey(rawDrugKey);
+
+    if (!selectedDrug) {
+      errors.push('Select a valid drug from the hardcoded list.');
     } else {
-      cleaned.drug_id = drugId;
+      cleaned.drug_key = selectedDrug.key;
+      cleaned.drug_name = selectedDrug.name;
     }
   }
 
@@ -319,22 +347,24 @@ function getSupabaseErrorMessage(error) {
   return error.message || 'Unknown error';
 }
 
-async function getDrugById(drugId) {
-  const rows = await supabaseRequest({
-    table: 'drugs',
-    query: {
-      select: 'id,name,is_active',
-      id: `eq.${drugId}`,
-      limit: '1',
-    },
-  });
-  return rows?.[0] || null;
+function isHardcodedDrugsMigrationError(message) {
+  const normalized = toCleanString(message).toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes('column "drug_key"') ||
+    normalized.includes('column "drug_name"') ||
+    (normalized.includes('column "drug_id"') && normalized.includes('null value')) ||
+    normalized.includes('group_submissions_drug_id_fkey')
+  );
 }
 
-async function getDrugTakenBySubmission(drugId, excludeSubmissionId = null) {
+async function getDrugTakenBySubmission(drugKey, excludeSubmissionId = null) {
   const query = {
-    select: 'id,team_number,drug_id',
-    drug_id: `eq.${drugId}`,
+    select: 'id,team_number,drug_key',
+    drug_key: `eq.${normalizeDrugKey(drugKey)}`,
     limit: '1',
   };
 
@@ -361,36 +391,27 @@ function requireAdmin(req, res) {
 
 async function handlePublicDrugs(res) {
   try {
-    const [drugs, submissions] = await Promise.all([
-      supabaseRequest({
-        table: 'drugs',
-        query: {
-          select: 'id,name,is_active',
-          order: 'name.asc',
-        },
-      }),
-      supabaseRequest({
-        table: 'group_submissions',
-        query: {
-          select: 'id,drug_id,team_number',
-        },
-      }),
-    ]);
+    const submissions = await supabaseRequest({
+      table: 'group_submissions',
+      query: {
+        select: 'id,drug_key,team_number',
+      },
+    });
 
     const takenMap = new Map();
     (submissions || []).forEach((submission) => {
-      if (submission.drug_id) {
-        takenMap.set(submission.drug_id, {
+      if (submission.drug_key) {
+        takenMap.set(normalizeDrugKey(submission.drug_key), {
           submission_id: submission.id,
           team_number: submission.team_number,
         });
       }
     });
 
-    const data = (drugs || []).map((drug) => {
-      const takenBy = takenMap.get(drug.id) || null;
+    const data = HARDCODED_DRUGS.map((drug) => {
+      const takenBy = takenMap.get(drug.key) || null;
       return {
-        id: drug.id,
+        key: drug.key,
         name: drug.name,
         is_active: Boolean(drug.is_active),
         is_taken: Boolean(takenBy),
@@ -400,9 +421,18 @@ async function handlePublicDrugs(res) {
 
     sendJson(res, 200, { drugs: data });
   } catch (error) {
+    const message = getSupabaseErrorMessage(error);
+    if (isHardcodedDrugsMigrationError(message)) {
+      sendJson(res, 500, {
+        error: 'Database migration required for hardcoded drugs mode.',
+        details: 'Run supabase/migrate_to_hardcoded_drugs.sql in Supabase SQL Editor.',
+      });
+      return;
+    }
+
     sendJson(res, 500, {
       error: 'Failed to load drugs.',
-      details: getSupabaseErrorMessage(error),
+      details: message,
     });
   }
 }
@@ -424,13 +454,13 @@ async function handlePublicSubmission(req, res) {
   }
 
   try {
-    const drug = await getDrugById(cleaned.drug_id);
+    const drug = getHardcodedDrugByKey(cleaned.drug_key);
     if (!drug || !drug.is_active) {
       sendJson(res, 400, { error: 'This drug is not available for selection.' });
       return;
     }
 
-    const takenBy = await getDrugTakenBySubmission(cleaned.drug_id);
+    const takenBy = await getDrugTakenBySubmission(cleaned.drug_key);
     if (takenBy) {
       sendJson(res, 409, {
         error: `This drug is already taken by Team ${takenBy.team_number}.`,
@@ -452,13 +482,21 @@ async function handlePublicSubmission(req, res) {
   } catch (error) {
     const message = getSupabaseErrorMessage(error);
 
-    if (message.includes('group_submissions_drug_id_key')) {
+    if (message.includes('group_submissions_drug_key_key') || message.includes('group_submissions_drug_id_key')) {
       sendJson(res, 409, { error: 'This drug was just taken by another team. Please pick another drug.' });
       return;
     }
 
     if (message.includes('group_submissions_course_group_team_number_key')) {
       sendJson(res, 409, { error: 'This team number was already submitted.' });
+      return;
+    }
+
+    if (isHardcodedDrugsMigrationError(message)) {
+      sendJson(res, 500, {
+        error: 'Database migration required for hardcoded drugs mode.',
+        details: 'Run supabase/migrate_to_hardcoded_drugs.sql in Supabase SQL Editor.',
+      });
       return;
     }
 
@@ -471,32 +509,50 @@ async function handlePublicSubmission(req, res) {
 
 async function handleAdminOverview(res) {
   try {
-    const [drugs, submissions] = await Promise.all([
-      supabaseRequest({
-        table: 'drugs',
-        query: {
-          select: 'id,name,is_active,created_at',
-          order: 'name.asc',
-        },
-      }),
-      supabaseRequest({
-        table: 'group_submissions',
-        query: {
-          select:
-            'id,course_group,team_number,leader_name,leader_email,leader_phone,students,drug_id,created_at,updated_at,drugs(name)',
-          order: 'created_at.asc',
-        },
-      }),
-    ]);
+    const submissions = await supabaseRequest({
+      table: 'group_submissions',
+      query: {
+        select:
+          'id,course_group,team_number,leader_name,leader_email,leader_phone,students,drug_key,drug_name,created_at,updated_at',
+        order: 'created_at.asc',
+      },
+    });
+
+    const takenByKey = new Map();
+    (submissions || []).forEach((submission) => {
+      if (submission.drug_key) {
+        takenByKey.set(normalizeDrugKey(submission.drug_key), {
+          submission_id: submission.id,
+          team_number: submission.team_number,
+        });
+      }
+    });
+
+    const drugs = HARDCODED_DRUGS.map((drug) => ({
+      key: drug.key,
+      name: drug.name,
+      is_active: Boolean(drug.is_active),
+      is_taken: takenByKey.has(drug.key),
+      taken_by: takenByKey.get(drug.key) || null,
+    }));
 
     sendJson(res, 200, {
-      drugs: drugs || [],
+      drugs,
       submissions: submissions || [],
     });
   } catch (error) {
+    const message = getSupabaseErrorMessage(error);
+    if (isHardcodedDrugsMigrationError(message)) {
+      sendJson(res, 500, {
+        error: 'Database migration required for hardcoded drugs mode.',
+        details: 'Run supabase/migrate_to_hardcoded_drugs.sql in Supabase SQL Editor.',
+      });
+      return;
+    }
+
     sendJson(res, 500, {
       error: 'Failed to load admin data.',
-      details: getSupabaseErrorMessage(error),
+      details: message,
     });
   }
 }
@@ -517,13 +573,13 @@ async function handleAdminCreateSubmission(req, res) {
   }
 
   try {
-    const drug = await getDrugById(cleaned.drug_id);
+    const drug = getHardcodedDrugByKey(cleaned.drug_key);
     if (!drug) {
       sendJson(res, 400, { error: 'Drug does not exist.' });
       return;
     }
 
-    const takenBy = await getDrugTakenBySubmission(cleaned.drug_id);
+    const takenBy = await getDrugTakenBySubmission(cleaned.drug_key);
     if (takenBy) {
       sendJson(res, 409, {
         error: `Drug already used by Team ${takenBy.team_number}.`,
@@ -543,9 +599,18 @@ async function handleAdminCreateSubmission(req, res) {
       submission: inserted?.[0] || null,
     });
   } catch (error) {
+    const message = getSupabaseErrorMessage(error);
+    if (isHardcodedDrugsMigrationError(message)) {
+      sendJson(res, 500, {
+        error: 'Database migration required for hardcoded drugs mode.',
+        details: 'Run supabase/migrate_to_hardcoded_drugs.sql in Supabase SQL Editor.',
+      });
+      return;
+    }
+
     sendJson(res, 500, {
       error: 'Failed to create submission.',
-      details: getSupabaseErrorMessage(error),
+      details: message,
     });
   }
 }
@@ -576,14 +641,14 @@ async function handleAdminUpdateSubmission(req, res, id) {
   }
 
   try {
-    if (cleaned.drug_id) {
-      const drug = await getDrugById(cleaned.drug_id);
+    if (cleaned.drug_key) {
+      const drug = getHardcodedDrugByKey(cleaned.drug_key);
       if (!drug) {
         sendJson(res, 400, { error: 'Drug does not exist.' });
         return;
       }
 
-      const takenBy = await getDrugTakenBySubmission(cleaned.drug_id, id);
+      const takenBy = await getDrugTakenBySubmission(cleaned.drug_key, id);
       if (takenBy) {
         sendJson(res, 409, {
           error: `Drug already used by Team ${takenBy.team_number}.`,
@@ -612,9 +677,18 @@ async function handleAdminUpdateSubmission(req, res, id) {
       submission: updated[0],
     });
   } catch (error) {
+    const message = getSupabaseErrorMessage(error);
+    if (isHardcodedDrugsMigrationError(message)) {
+      sendJson(res, 500, {
+        error: 'Database migration required for hardcoded drugs mode.',
+        details: 'Run supabase/migrate_to_hardcoded_drugs.sql in Supabase SQL Editor.',
+      });
+      return;
+    }
+
     sendJson(res, 500, {
       error: 'Failed to update submission.',
-      details: getSupabaseErrorMessage(error),
+      details: message,
     });
   }
 }
@@ -644,135 +718,6 @@ async function handleAdminDeleteSubmission(res, id) {
   } catch (error) {
     sendJson(res, 500, {
       error: 'Failed to delete submission.',
-      details: getSupabaseErrorMessage(error),
-    });
-  }
-}
-
-async function handleAdminCreateDrug(req, res) {
-  let body;
-  try {
-    body = await parseJsonBody(req);
-  } catch (error) {
-    sendJson(res, 400, { error: error.message });
-    return;
-  }
-
-  const name = toCleanString(body.name);
-  const isActive = body.is_active ?? body.isActive;
-
-  if (!name) {
-    sendJson(res, 400, { error: 'Drug name is required.' });
-    return;
-  }
-
-  try {
-    const inserted = await supabaseRequest({
-      table: 'drugs',
-      method: 'POST',
-      body: {
-        name,
-        is_active: isActive === undefined ? true : Boolean(isActive),
-      },
-      prefer: 'return=representation',
-    });
-
-    sendJson(res, 201, {
-      message: 'Drug created.',
-      drug: inserted?.[0] || null,
-    });
-  } catch (error) {
-    sendJson(res, 500, {
-      error: 'Failed to create drug.',
-      details: getSupabaseErrorMessage(error),
-    });
-  }
-}
-
-async function handleAdminUpdateDrug(req, res, id) {
-  if (!isUuid(id)) {
-    sendJson(res, 400, { error: 'Invalid drug ID.' });
-    return;
-  }
-
-  let body;
-  try {
-    body = await parseJsonBody(req);
-  } catch (error) {
-    sendJson(res, 400, { error: error.message });
-    return;
-  }
-
-  const updates = {};
-
-  if (body.name !== undefined) {
-    const name = toCleanString(body.name);
-    if (!name) {
-      sendJson(res, 400, { error: 'Drug name cannot be empty.' });
-      return;
-    }
-    updates.name = name;
-  }
-
-  if (body.is_active !== undefined || body.isActive !== undefined) {
-    updates.is_active = Boolean(body.is_active ?? body.isActive);
-  }
-
-  if (Object.keys(updates).length === 0) {
-    sendJson(res, 400, { error: 'No valid fields to update.' });
-    return;
-  }
-
-  try {
-    const updated = await supabaseRequest({
-      table: 'drugs',
-      method: 'PATCH',
-      query: {
-        id: `eq.${id}`,
-      },
-      body: updates,
-      prefer: 'return=representation',
-    });
-
-    if (!updated || updated.length === 0) {
-      sendJson(res, 404, { error: 'Drug not found.' });
-      return;
-    }
-
-    sendJson(res, 200, { message: 'Drug updated.', drug: updated[0] });
-  } catch (error) {
-    sendJson(res, 500, {
-      error: 'Failed to update drug.',
-      details: getSupabaseErrorMessage(error),
-    });
-  }
-}
-
-async function handleAdminDeleteDrug(res, id) {
-  if (!isUuid(id)) {
-    sendJson(res, 400, { error: 'Invalid drug ID.' });
-    return;
-  }
-
-  try {
-    const deleted = await supabaseRequest({
-      table: 'drugs',
-      method: 'DELETE',
-      query: {
-        id: `eq.${id}`,
-      },
-      prefer: 'return=representation',
-    });
-
-    if (!deleted || deleted.length === 0) {
-      sendJson(res, 404, { error: 'Drug not found.' });
-      return;
-    }
-
-    sendJson(res, 200, { message: 'Drug deleted.' });
-  } catch (error) {
-    sendJson(res, 500, {
-      error: 'Failed to delete drug. Remove dependent submission first.',
       details: getSupabaseErrorMessage(error),
     });
   }
@@ -828,21 +773,9 @@ async function handleApi(req, res, pathname) {
     }
   }
 
-  if (pathname === '/api/admin/drugs' && req.method === 'POST') {
-    await handleAdminCreateDrug(req, res);
+  if (pathname === '/api/admin/drugs' || pathname.startsWith('/api/admin/drugs/')) {
+    sendJson(res, 410, { error: 'Drug list is hardcoded and cannot be edited from admin.' });
     return;
-  }
-
-  if (pathname.startsWith('/api/admin/drugs/')) {
-    const id = pathname.split('/').pop();
-    if (req.method === 'PATCH') {
-      await handleAdminUpdateDrug(req, res, id);
-      return;
-    }
-    if (req.method === 'DELETE') {
-      await handleAdminDeleteDrug(res, id);
-      return;
-    }
   }
 
   sendJson(res, 404, { error: 'API route not found.' });

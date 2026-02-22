@@ -3,9 +3,7 @@ const adminStatusEl = document.getElementById('admin-status');
 const submissionForm = document.getElementById('admin-submission-form');
 const clearSubmissionFormBtn = document.getElementById('clear-submission-form');
 const submissionsTable = document.getElementById('submissions-table');
-const drugsTable = document.getElementById('drugs-table');
 const drugSelect = document.getElementById('admin-drug-id');
-const newDrugForm = document.getElementById('new-drug-form');
 
 const token = new URLSearchParams(window.location.search).get('token') || '';
 
@@ -69,16 +67,14 @@ function studentsToText(students) {
     return '';
   }
 
-  return students
-    .map((student) => `${student.student_id || ''}, ${student.student_name || ''}`)
-    .join('\n');
+  return students.map((student) => `${student.student_id || ''}, ${student.student_name || ''}`).join('\n');
 }
 
-function getDrugNameById(drugId) {
-  return drugs.find((drug) => drug.id === drugId)?.name || '-';
+function getDrugNameByKey(drugKey) {
+  return drugs.find((drug) => drug.key === drugKey)?.name || '-';
 }
 
-function renderDrugSelect() {
+function renderDrugSelect(selectedDrugKey = '') {
   drugSelect.innerHTML = '';
 
   const placeholder = document.createElement('option');
@@ -90,10 +86,14 @@ function renderDrugSelect() {
 
   drugs.forEach((drug) => {
     const option = document.createElement('option');
-    option.value = drug.id;
-    option.textContent = `${drug.name}${drug.is_active ? '' : ' (inactive)'}`;
+    option.value = drug.key;
+    option.textContent = `${drug.name}${drug.is_taken ? ' (taken)' : ''}`;
     drugSelect.appendChild(option);
   });
+
+  if (selectedDrugKey) {
+    drugSelect.value = selectedDrugKey;
+  }
 }
 
 function renderSubmissionsTable() {
@@ -110,7 +110,7 @@ function renderSubmissionsTable() {
     leaderTd.style.whiteSpace = 'pre-line';
 
     const drugTd = document.createElement('td');
-    drugTd.textContent = getDrugNameById(submission.drug_id);
+    drugTd.textContent = submission.drug_name || getDrugNameByKey(submission.drug_key);
 
     const studentsTd = document.createElement('td');
     studentsTd.textContent = Array.isArray(submission.students) ? submission.students.length : 0;
@@ -142,89 +142,8 @@ function renderSubmissionsTable() {
     });
 
     actionsTd.append(editBtn, deleteBtn);
-
     tr.append(teamTd, leaderTd, drugTd, studentsTd, actionsTd);
     submissionsTable.appendChild(tr);
-  });
-}
-
-function renderDrugsTable() {
-  drugsTable.innerHTML = '';
-
-  const takenDrugIds = new Set(submissions.map((submission) => submission.drug_id));
-
-  drugs.forEach((drug) => {
-    const tr = document.createElement('tr');
-
-    const nameTd = document.createElement('td');
-    const nameInput = document.createElement('input');
-    nameInput.type = 'text';
-    nameInput.value = drug.name;
-    nameTd.appendChild(nameInput);
-
-    const activeTd = document.createElement('td');
-    const activeInput = document.createElement('input');
-    activeInput.type = 'checkbox';
-    activeInput.checked = Boolean(drug.is_active);
-    activeTd.appendChild(activeInput);
-
-    const statusTd = document.createElement('td');
-    const statusTag = document.createElement('span');
-    if (!drug.is_active) {
-      statusTag.className = 'tag inactive';
-      statusTag.textContent = 'Inactive';
-    } else if (takenDrugIds.has(drug.id)) {
-      statusTag.className = 'tag taken';
-      statusTag.textContent = 'Taken';
-    } else {
-      statusTag.className = 'tag available';
-      statusTag.textContent = 'Available';
-    }
-    statusTd.appendChild(statusTag);
-
-    const actionsTd = document.createElement('td');
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'btn btn-secondary';
-    saveBtn.textContent = 'Save';
-    saveBtn.addEventListener('click', async () => {
-      try {
-        await adminFetch(`/api/admin/drugs/${drug.id}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            name: nameInput.value.trim(),
-            is_active: activeInput.checked,
-          }),
-        });
-        setStatus('Drug updated.', 'success');
-        await loadOverview();
-      } catch (error) {
-        setStatus(error.message, 'error');
-      }
-    });
-
-    const deleteBtn = document.createElement('button');
-    deleteBtn.className = 'btn btn-danger';
-    deleteBtn.textContent = 'Delete';
-    deleteBtn.addEventListener('click', async () => {
-      if (!window.confirm('Delete this drug?')) {
-        return;
-      }
-
-      try {
-        await adminFetch(`/api/admin/drugs/${drug.id}`, {
-          method: 'DELETE',
-        });
-        setStatus('Drug deleted.', 'success');
-        await loadOverview();
-      } catch (error) {
-        setStatus(error.message, 'error');
-      }
-    });
-
-    actionsTd.append(saveBtn, deleteBtn);
-
-    tr.append(nameTd, activeTd, statusTd, actionsTd);
-    drugsTable.appendChild(tr);
   });
 }
 
@@ -234,8 +153,8 @@ function fillSubmissionForm(submission) {
   document.getElementById('admin-leader-name').value = submission.leader_name;
   document.getElementById('admin-leader-email').value = submission.leader_email;
   document.getElementById('admin-leader-phone').value = submission.leader_phone;
-  document.getElementById('admin-drug-id').value = submission.drug_id;
   document.getElementById('admin-students').value = studentsToText(submission.students);
+  renderDrugSelect(submission.drug_key || '');
 }
 
 function clearSubmissionForm() {
@@ -260,7 +179,6 @@ async function loadOverview() {
 
   renderDrugSelect();
   renderSubmissionsTable();
-  renderDrugsTable();
 }
 
 submissionForm.addEventListener('submit', async (event) => {
@@ -279,7 +197,7 @@ submissionForm.addEventListener('submit', async (event) => {
     leaderName: document.getElementById('admin-leader-name').value.trim(),
     leaderEmail: document.getElementById('admin-leader-email').value.trim(),
     leaderPhone: document.getElementById('admin-leader-phone').value.trim(),
-    drugId: document.getElementById('admin-drug-id').value,
+    drugKey: document.getElementById('admin-drug-id').value,
     students,
   };
 
@@ -308,28 +226,6 @@ submissionForm.addEventListener('submit', async (event) => {
 clearSubmissionFormBtn.addEventListener('click', () => {
   clearSubmissionForm();
   setStatus('');
-});
-
-newDrugForm.addEventListener('submit', async (event) => {
-  event.preventDefault();
-
-  const nameInput = document.getElementById('new-drug-name');
-  const name = nameInput.value.trim();
-  if (!name) {
-    return;
-  }
-
-  try {
-    await adminFetch('/api/admin/drugs', {
-      method: 'POST',
-      body: JSON.stringify({ name }),
-    });
-    nameInput.value = '';
-    setStatus('Drug added.', 'success');
-    await loadOverview();
-  } catch (error) {
-    setStatus(error.message, 'error');
-  }
 });
 
 loadOverview().catch((error) => {
