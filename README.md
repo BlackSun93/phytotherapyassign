@@ -1,7 +1,8 @@
 # Phytotherapy Assignment Platform
 
 Very simple submission platform for student teams:
-- Student page: choose an available drug, submit group/leader/students.
+- Page 1 (`/`): choose an available drug from a visual card list.
+- Page 2 (`/team`): submit team/leader/students for the selected drug.
 - Drug lock: first submission gets the drug (unique constraint in DB).
 - Admin page: no login, only URL token (e.g. `/admin?token=...`) to edit submissions and drugs.
 
@@ -38,13 +39,13 @@ npm start
 ```
 
 Open:
-- Student page: [http://localhost:3000](http://localhost:3000)
+- Drug selection page: [http://localhost:3000](http://localhost:3000)
+- Team submission page: [http://localhost:3000/team](http://localhost:3000/team)
 - Admin page: `http://localhost:3000/admin?token=YOUR_ADMIN_DASHBOARD_TOKEN`
 
 ## Notes
 
 - Team constraints in this version:
-  - `Group Number`: 1..4
   - `Team Number`: 1..20
 - Students are stored as JSON (`student_id`, `student_name`).
 - Admin can add/edit/delete submissions and drugs.

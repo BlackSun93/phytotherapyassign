@@ -102,9 +102,6 @@ function renderSubmissionsTable() {
   submissions.forEach((submission) => {
     const tr = document.createElement('tr');
 
-    const groupTd = document.createElement('td');
-    groupTd.textContent = submission.course_group;
-
     const teamTd = document.createElement('td');
     teamTd.textContent = submission.team_number;
 
@@ -146,7 +143,7 @@ function renderSubmissionsTable() {
 
     actionsTd.append(editBtn, deleteBtn);
 
-    tr.append(groupTd, teamTd, leaderTd, drugTd, studentsTd, actionsTd);
+    tr.append(teamTd, leaderTd, drugTd, studentsTd, actionsTd);
     submissionsTable.appendChild(tr);
   });
 }
@@ -233,7 +230,6 @@ function renderDrugsTable() {
 
 function fillSubmissionForm(submission) {
   document.getElementById('submission-id').value = submission.id;
-  document.getElementById('admin-course-group').value = submission.course_group;
   document.getElementById('admin-team-number').value = submission.team_number;
   document.getElementById('admin-leader-name').value = submission.leader_name;
   document.getElementById('admin-leader-email').value = submission.leader_email;
@@ -279,7 +275,6 @@ submissionForm.addEventListener('submit', async (event) => {
   }
 
   const payload = {
-    courseGroup: Number.parseInt(document.getElementById('admin-course-group').value, 10),
     teamNumber: Number.parseInt(document.getElementById('admin-team-number').value, 10),
     leaderName: document.getElementById('admin-leader-name').value.trim(),
     leaderEmail: document.getElementById('admin-leader-email').value.trim(),

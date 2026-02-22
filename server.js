@@ -45,6 +45,12 @@ const MIME_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.ico': 'image/x-icon',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
 };
 
 function hasSupabaseConfig() {
@@ -103,6 +109,9 @@ async function serveStatic(res, pathname) {
   }
   if (relativePath === '/admin') {
     relativePath = '/admin.html';
+  }
+  if (relativePath === '/team') {
+    relativePath = '/team.html';
   }
 
   const normalized = path
@@ -164,12 +173,18 @@ function normalizeSubmissionPayload(input, { partial = false } = {}) {
   const cleaned = {};
   const errors = [];
 
-  if (!partial || payload.courseGroup !== undefined || payload.course_group !== undefined) {
-    const courseGroup = parseIntOrNull(payload.courseGroup ?? payload.course_group);
-    if (courseGroup === null || courseGroup < 1 || courseGroup > 4) {
-      errors.push('Course group must be a number between 1 and 4.');
+  const hasCourseGroup = payload.courseGroup !== undefined || payload.course_group !== undefined;
+  if (!partial || hasCourseGroup) {
+    const rawCourseGroup = payload.courseGroup ?? payload.course_group;
+    if (!partial && (rawCourseGroup === undefined || rawCourseGroup === null || rawCourseGroup === '')) {
+      cleaned.course_group = 1;
     } else {
-      cleaned.course_group = courseGroup;
+      const courseGroup = parseIntOrNull(rawCourseGroup);
+      if (courseGroup === null || courseGroup < 1 || courseGroup > 4) {
+        errors.push('Course group must be a number between 1 and 4.');
+      } else {
+        cleaned.course_group = courseGroup;
+      }
     }
   }
 
@@ -318,7 +333,7 @@ async function getDrugById(drugId) {
 
 async function getDrugTakenBySubmission(drugId, excludeSubmissionId = null) {
   const query = {
-    select: 'id,course_group,team_number,drug_id',
+    select: 'id,team_number,drug_id',
     drug_id: `eq.${drugId}`,
     limit: '1',
   };
@@ -357,7 +372,7 @@ async function handlePublicDrugs(res) {
       supabaseRequest({
         table: 'group_submissions',
         query: {
-          select: 'id,drug_id,course_group,team_number',
+          select: 'id,drug_id,team_number',
         },
       }),
     ]);
@@ -367,7 +382,6 @@ async function handlePublicDrugs(res) {
       if (submission.drug_id) {
         takenMap.set(submission.drug_id, {
           submission_id: submission.id,
-          course_group: submission.course_group,
           team_number: submission.team_number,
         });
       }
@@ -419,7 +433,7 @@ async function handlePublicSubmission(req, res) {
     const takenBy = await getDrugTakenBySubmission(cleaned.drug_id);
     if (takenBy) {
       sendJson(res, 409, {
-        error: `This drug is already taken by Group ${takenBy.course_group}, Team ${takenBy.team_number}.`,
+        error: `This drug is already taken by Team ${takenBy.team_number}.`,
       });
       return;
     }
@@ -444,7 +458,7 @@ async function handlePublicSubmission(req, res) {
     }
 
     if (message.includes('group_submissions_course_group_team_number_key')) {
-      sendJson(res, 409, { error: 'This group/team number was already submitted.' });
+      sendJson(res, 409, { error: 'This team number was already submitted.' });
       return;
     }
 
@@ -512,7 +526,7 @@ async function handleAdminCreateSubmission(req, res) {
     const takenBy = await getDrugTakenBySubmission(cleaned.drug_id);
     if (takenBy) {
       sendJson(res, 409, {
-        error: `Drug already used by Group ${takenBy.course_group}, Team ${takenBy.team_number}.`,
+        error: `Drug already used by Team ${takenBy.team_number}.`,
       });
       return;
     }
@@ -572,7 +586,7 @@ async function handleAdminUpdateSubmission(req, res, id) {
       const takenBy = await getDrugTakenBySubmission(cleaned.drug_id, id);
       if (takenBy) {
         sendJson(res, 409, {
-          error: `Drug already used by Group ${takenBy.course_group}, Team ${takenBy.team_number}.`,
+          error: `Drug already used by Team ${takenBy.team_number}.`,
         });
         return;
       }
