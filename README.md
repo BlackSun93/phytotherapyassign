@@ -1,8 +1,8 @@
 # Phytotherapy Assignment Platform
 
-Simple 2-page flow for student teams:
+Simple 2-page flow for student groups:
 - Page 1 (`/`): choose one available drug from a visual card list.
-- Page 2 (`/team`): submit team, leader info, and students.
+- Page 2 (`/group`): submit group, leader info, and students.
 - Drug list is hardcoded in the backend.
 - Database is used only to save submissions and lock selected drugs.
 
@@ -38,7 +38,7 @@ npm start
 
 Open:
 - Drug list: [http://localhost:3000](http://localhost:3000)
-- Team form: [http://localhost:3000/team](http://localhost:3000/team)
+- Group form: [http://localhost:3000/group](http://localhost:3000/group)
 - Admin: `http://localhost:3000/admin?token=YOUR_ADMIN_DASHBOARD_TOKEN`
 
 ## Deploy To Vercel
@@ -50,6 +50,6 @@ After setting env vars, deploy branch `main`.
 ## Notes
 
 - Hardcoded 20-drug list is in `/Users/mohamedosama/phytotherapyassign/server.js` (`HARDCODED_DRUGS`).
-- Team number range is `1..20`.
+- Group number range is `1..20`.
 - Students are stored as JSON (`student_id`, `student_name`).
 - Admin can add/edit/delete submissions only.

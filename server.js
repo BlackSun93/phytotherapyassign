@@ -144,6 +144,9 @@ async function serveStatic(res, pathname) {
   if (relativePath === '/team') {
     relativePath = '/team.html';
   }
+  if (relativePath === '/group') {
+    relativePath = '/team.html';
+  }
 
   const normalized = path
     .normalize(relativePath)
@@ -231,7 +234,7 @@ function normalizeSubmissionPayload(input, { partial = false } = {}) {
   if (!partial || payload.teamNumber !== undefined || payload.team_number !== undefined) {
     const teamNumber = parseIntOrNull(payload.teamNumber ?? payload.team_number);
     if (teamNumber === null || teamNumber < 1 || teamNumber > 20) {
-      errors.push('Team number must be a number between 1 and 20.');
+      errors.push('Group number must be a number between 1 and 20.');
     } else {
       cleaned.team_number = teamNumber;
     }
@@ -287,7 +290,7 @@ function normalizeSubmissionPayload(input, { partial = false } = {}) {
     if (students.length === 0) {
       errors.push('Add at least one student (ID + name).');
     } else if (students.length > 25) {
-      errors.push('Maximum 25 students per team.');
+      errors.push('Maximum 25 students per group.');
     } else {
       cleaned.students = students;
     }
@@ -339,14 +342,14 @@ function mapSubmissionConstraintError(error) {
   if (constraint.includes('group_submissions_drug_key_key')) {
     return {
       status: 409,
-      message: 'This drug was just taken by another team. Please pick another drug.',
+      message: 'This drug was just taken by another group. Please pick another drug.',
     };
   }
 
   if (constraint.includes('group_submissions_course_group_team_number_key')) {
     return {
       status: 409,
-      message: 'This team number was already submitted.',
+      message: 'This group number was already submitted.',
     };
   }
 
@@ -490,7 +493,7 @@ async function handlePublicSubmission(req, res) {
 
     const takenBy = await getDrugTakenBySubmission(cleaned.drug_key);
     if (takenBy) {
-      sendJson(res, 409, { error: `This drug is already taken by Team ${takenBy.team_number}.` });
+      sendJson(res, 409, { error: `This drug is already taken by Group ${takenBy.team_number}.` });
       return;
     }
 
@@ -598,7 +601,7 @@ async function handleAdminCreateSubmission(req, res) {
 
     const takenBy = await getDrugTakenBySubmission(cleaned.drug_key);
     if (takenBy) {
-      sendJson(res, 409, { error: `Drug already used by Team ${takenBy.team_number}.` });
+      sendJson(res, 409, { error: `Drug already used by Group ${takenBy.team_number}.` });
       return;
     }
 
@@ -661,7 +664,7 @@ async function handleAdminUpdateSubmission(req, res, id) {
 
       const takenBy = await getDrugTakenBySubmission(cleaned.drug_key, id);
       if (takenBy) {
-        sendJson(res, 409, { error: `Drug already used by Team ${takenBy.team_number}.` });
+        sendJson(res, 409, { error: `Drug already used by Group ${takenBy.team_number}.` });
         return;
       }
     }

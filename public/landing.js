@@ -47,7 +47,7 @@ function renderDrugs(drugs) {
     if (!drug.is_active) {
       details.textContent = 'This drug is currently inactive.';
     } else if (drug.is_taken && drug.taken_by) {
-      details.textContent = `Locked by Team ${drug.taken_by.team_number}.`;
+      details.textContent = `Locked by Group ${drug.taken_by.team_number}.`;
     } else {
       details.textContent = 'Click select to continue with this drug.';
     }
@@ -59,7 +59,7 @@ function renderDrugs(drugs) {
     action.disabled = !drug.is_active || drug.is_taken;
 
     action.addEventListener('click', () => {
-      window.location.href = `/team?drugKey=${encodeURIComponent(drug.key)}`;
+      window.location.href = `/group?drugKey=${encodeURIComponent(drug.key)}`;
     });
 
     card.append(header, details, action);
