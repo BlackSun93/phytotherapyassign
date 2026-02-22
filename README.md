@@ -17,7 +17,7 @@ Simple 2-page flow for student teams:
 ## Environment Variables
 
 Set these locally in `.env` and in Vercel project settings:
-- `DATABASE_URL`
+- `DATABASE_URL` (or `POSTGRES_URL` from Vercel Marketplace Neon)
 - `ADMIN_DASHBOARD_TOKEN`
 
 Optional:
