@@ -27,6 +27,15 @@ cp /Users/mohamedosama/phytotherapyassign/.env.example /Users/mohamedosama/phyto
    - `SUPABASE_SERVICE_ROLE_KEY`
    - `ADMIN_DASHBOARD_TOKEN`
 
+## 2.1) Vercel Environment Variables
+
+In Vercel project settings, add the same variables:
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `ADMIN_DASHBOARD_TOKEN`
+
+This repository uses `/Users/mohamedosama/phytotherapyassign/vercel.json` to route all requests (including `/api/*`) through `server.js`.
+
 ## 3) Add Your Logo
 
 Place your logo file as:

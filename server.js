@@ -781,7 +781,7 @@ async function handleApi(req, res, pathname) {
   sendJson(res, 404, { error: 'API route not found.' });
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   if (!req.url) {
     sendText(res, 400, 'Bad request');
     return;
@@ -808,9 +808,14 @@ const server = http.createServer(async (req, res) => {
       details: error.message,
     });
   }
-});
+}
 
-server.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  const server = http.createServer(handleRequest);
+  server.listen(PORT, () => {
+    // eslint-disable-next-line no-console
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = handleRequest;
