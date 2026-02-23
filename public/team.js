@@ -9,7 +9,15 @@ const editSelectedBtn = document.getElementById('edit-selected');
 const removeSelectedBtn = document.getElementById('remove-selected');
 const studentsListEl = document.getElementById('students-list');
 
+const SELECTED_DRUG_STORAGE_KEY = 'phytotherapy:selected-drug-key';
 const preferredDrugKey =
+  (() => {
+    try {
+      return window.sessionStorage.getItem(SELECTED_DRUG_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  })() ||
   new URLSearchParams(window.location.search).get('drugKey') ||
   new URLSearchParams(window.location.search).get('drugId') ||
   '';
@@ -80,6 +88,18 @@ function getDrugListUrl() {
   }
 
   return `/api/public/drugs?holderToken=${encodeURIComponent(tokenCandidate)}`;
+}
+
+function setSelectedDrugStorage(drugKey) {
+  try {
+    if (drugKey) {
+      window.sessionStorage.setItem(SELECTED_DRUG_STORAGE_KEY, drugKey);
+    } else {
+      window.sessionStorage.removeItem(SELECTED_DRUG_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors.
+  }
 }
 
 function parseStudentEntry(studentIdValue, studentNameValue) {
@@ -388,6 +408,7 @@ async function reserveDrug(
 
     selectedDrugKey = reservation.drugKey;
     drugSelect.value = reservation.drugKey;
+    setSelectedDrugStorage(reservation.drugKey);
     setStoredReservationToken(reservation.drugKey, reservation.holderToken);
     startHeartbeat();
     syncSubmitEnabled();
@@ -416,6 +437,7 @@ async function reserveDrug(
 async function switchSelectedDrugReservation(drugKey) {
   if (!drugKey) {
     selectedDrugKey = '';
+    setSelectedDrugStorage('');
     syncSubmitEnabled();
     return;
   }
@@ -423,6 +445,7 @@ async function switchSelectedDrugReservation(drugKey) {
   const reserved = await reserveDrug(drugKey, { silent: false });
   if (!reserved) {
     selectedDrugKey = '';
+    setSelectedDrugStorage('');
     drugSelect.value = '';
   }
 
@@ -508,6 +531,7 @@ form.addEventListener('submit', async (event) => {
     form.reset();
     students = [];
     selectedDrugKey = '';
+    setSelectedDrugStorage('');
     selectedStudentIndex = -1;
     resetStudentEditor();
     renderStudents();
@@ -560,8 +584,10 @@ async function initialize() {
 
   if (!reserved) {
     selectedDrugKey = '';
+    setSelectedDrugStorage('');
     setStatus('Selected drug is no longer available. Please choose another one.', 'error');
   } else {
+    setSelectedDrugStorage(preferredDrugKey);
     setStatus('Selected drug reserved for your group. Complete submission within 10 minutes.', 'success');
   }
 

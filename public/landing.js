@@ -1,5 +1,6 @@
 const gridEl = document.getElementById('drugs-grid');
 const statusEl = document.getElementById('status');
+const SELECTED_DRUG_STORAGE_KEY = 'phytotherapy:selected-drug-key';
 
 function setStatus(message, type = 'success') {
   statusEl.textContent = message;
@@ -64,7 +65,12 @@ function renderDrugs(drugs) {
     action.disabled = !drug.is_active || drug.is_taken || drug.is_reserved;
 
     action.addEventListener('click', () => {
-      window.location.href = `/group?drugKey=${encodeURIComponent(drug.key)}`;
+      try {
+        window.sessionStorage.setItem(SELECTED_DRUG_STORAGE_KEY, drug.key);
+      } catch {
+        // Ignore storage errors.
+      }
+      window.location.href = '/group';
     });
 
     card.append(header, details, action);
