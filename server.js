@@ -40,6 +40,7 @@ const ADMIN_DASHBOARD_TOKEN = process.env.ADMIN_DASHBOARD_TOKEN || 'change-this-
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const DRUG_KEY_REGEX = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -55,17 +56,6 @@ const MIME_TYPES = {
   '.gif': 'image/gif',
 };
 
-const HARDCODED_DRUGS = Array.from({ length: 20 }, (_, index) => {
-  const number = String(index + 1).padStart(2, '0');
-  return {
-    key: `drug-${number}`,
-    name: `Drug ${number}`,
-    is_active: true,
-  };
-});
-
-const HARDCODED_DRUGS_BY_KEY = new Map(HARDCODED_DRUGS.map((drug) => [drug.key, drug]));
-
 let pool = null;
 
 function hasDatabaseConfig() {
@@ -80,6 +70,7 @@ function getPool() {
       ssl: isLocal ? false : { rejectUnauthorized: false },
     });
   }
+
   return pool;
 }
 
@@ -194,8 +185,34 @@ function normalizeDrugKey(value) {
   return toCleanString(value).toLowerCase();
 }
 
-function getHardcodedDrugByKey(value) {
-  return HARDCODED_DRUGS_BY_KEY.get(normalizeDrugKey(value)) || null;
+function slugifyDrugKey(value) {
+  const slug = toCleanString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return slug;
+}
+
+function parseBooleanOrNull(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  const normalized = toCleanString(value).toLowerCase();
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+
+  if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+
+  return null;
 }
 
 function normalizeStudents(students) {
@@ -219,6 +236,7 @@ function normalizeSubmissionPayload(input, { partial = false } = {}) {
   const hasCourseGroup = payload.courseGroup !== undefined || payload.course_group !== undefined;
   if (!partial || hasCourseGroup) {
     const rawCourseGroup = payload.courseGroup ?? payload.course_group;
+
     if (!partial && (rawCourseGroup === undefined || rawCourseGroup === null || rawCourseGroup === '')) {
       cleaned.course_group = 1;
     } else {
@@ -267,21 +285,19 @@ function normalizeSubmissionPayload(input, { partial = false } = {}) {
     }
   }
 
-  if (
-    !partial ||
+  const hasDrugKey =
     payload.drugKey !== undefined ||
     payload.drug_key !== undefined ||
     payload.drugId !== undefined ||
-    payload.drug_id !== undefined
-  ) {
-    const rawDrugKey = payload.drugKey ?? payload.drug_key ?? payload.drugId ?? payload.drug_id;
-    const selectedDrug = getHardcodedDrugByKey(rawDrugKey);
+    payload.drug_id !== undefined;
 
-    if (!selectedDrug) {
-      errors.push('Select a valid drug from the hardcoded list.');
+  if (!partial || hasDrugKey) {
+    const rawDrugKey = payload.drugKey ?? payload.drug_key ?? payload.drugId ?? payload.drug_id;
+    const drugKey = normalizeDrugKey(rawDrugKey);
+    if (!drugKey) {
+      errors.push('Select a valid drug.');
     } else {
-      cleaned.drug_key = selectedDrug.key;
-      cleaned.drug_name = selectedDrug.name;
+      cleaned.drug_key = drugKey;
     }
   }
 
@@ -293,6 +309,79 @@ function normalizeSubmissionPayload(input, { partial = false } = {}) {
       errors.push('Maximum 25 students per group.');
     } else {
       cleaned.students = students;
+    }
+  }
+
+  return {
+    errors,
+    cleaned,
+  };
+}
+
+function normalizeAdminDrugPayload(input, { partial = false } = {}) {
+  const payload = input || {};
+  const cleaned = {};
+  const errors = [];
+
+  const hasName = payload.name !== undefined;
+  if (!partial || hasName) {
+    const name = toCleanString(payload.name);
+    if (!name) {
+      errors.push('Drug name is required.');
+    } else {
+      cleaned.name = name;
+    }
+  }
+
+  const hasKey =
+    payload.key !== undefined ||
+    payload.drugKey !== undefined ||
+    payload.drug_key !== undefined ||
+    payload.slug !== undefined;
+
+  if (!partial || hasKey) {
+    const rawKey = payload.key ?? payload.drugKey ?? payload.drug_key ?? payload.slug;
+    const key = normalizeDrugKey(rawKey);
+    if (!key) {
+      if (!partial && cleaned.name) {
+        cleaned.key = slugifyDrugKey(cleaned.name);
+      } else {
+        errors.push('Drug key is required.');
+      }
+    } else {
+      cleaned.key = key;
+    }
+  }
+
+  if (cleaned.key && !DRUG_KEY_REGEX.test(cleaned.key)) {
+    errors.push('Drug key must use lowercase letters, numbers, and dashes only.');
+  }
+
+  const hasActive = payload.isActive !== undefined || payload.is_active !== undefined;
+  if (!partial || hasActive) {
+    const isActive = parseBooleanOrNull(payload.isActive ?? payload.is_active);
+    if (isActive === null) {
+      if (!partial) {
+        cleaned.is_active = true;
+      } else {
+        errors.push('isActive must be true or false.');
+      }
+    } else {
+      cleaned.is_active = isActive;
+    }
+  }
+
+  const hasSort = payload.sortOrder !== undefined || payload.sort_order !== undefined;
+  if (!partial || hasSort) {
+    const sortOrder = parseIntOrNull(payload.sortOrder ?? payload.sort_order);
+    if (sortOrder === null) {
+      if (!partial) {
+        cleaned.sort_order = 0;
+      } else {
+        errors.push('sortOrder must be a number.');
+      }
+    } else {
+      cleaned.sort_order = sortOrder;
     }
   }
 
@@ -326,6 +415,10 @@ function isSchemaMigrationError(error) {
     return false;
   }
 
+  if (message.includes('drugs') && message.includes('does not exist')) {
+    return true;
+  }
+
   return (
     message.includes('group_submissions') &&
     (message.includes('drug_key') || message.includes('drug_name') || message.includes('does not exist'))
@@ -356,11 +449,111 @@ function mapSubmissionConstraintError(error) {
   return null;
 }
 
+function mapDrugConstraintError(error) {
+  if (!error || error.code !== '23505') {
+    return null;
+  }
+
+  return {
+    status: 409,
+    message: 'Drug key already exists. Use another key.',
+  };
+}
+
 function sendMigrationError(res) {
   sendJson(res, 500, {
     error: 'Database schema is not ready.',
     details:
-      'Run supabase/schema.sql for a new Neon database, or supabase/migrate_to_hardcoded_drugs.sql for an existing database.',
+      'Run supabase/schema.sql for a new DB, or supabase/migrate_to_full_management.sql for an existing DB, then retry.',
+  });
+}
+
+async function getSubmissionRows() {
+  const result = await dbQuery(`
+    select
+      id,
+      course_group,
+      team_number,
+      leader_name,
+      leader_email,
+      leader_phone,
+      students,
+      drug_key,
+      drug_name,
+      created_at,
+      updated_at
+    from public.group_submissions
+    order by created_at asc
+  `);
+
+  return result.rows || [];
+}
+
+async function getDrugRows({ activeOnly = false } = {}) {
+  const sql = `
+    select
+      lower(key) as key,
+      name,
+      is_active,
+      sort_order,
+      created_at,
+      updated_at
+    from public.drugs
+    ${activeOnly ? 'where is_active = true' : ''}
+    order by sort_order asc, name asc
+  `;
+
+  const result = await dbQuery(sql);
+  return result.rows || [];
+}
+
+async function getDrugByKey(drugKey) {
+  const key = normalizeDrugKey(drugKey);
+  if (!key) {
+    return null;
+  }
+
+  const result = await dbQuery(
+    `
+      select
+        lower(key) as key,
+        name,
+        is_active,
+        sort_order,
+        created_at,
+        updated_at
+      from public.drugs
+      where lower(key) = $1
+      limit 1
+    `,
+    [key],
+  );
+
+  return result.rows[0] || null;
+}
+
+function createTakenMap(submissions) {
+  const takenMap = new Map();
+  submissions.forEach((submission) => {
+    if (submission.drug_key) {
+      takenMap.set(normalizeDrugKey(submission.drug_key), {
+        submission_id: submission.id,
+        team_number: submission.team_number,
+      });
+    }
+  });
+
+  return takenMap;
+}
+
+function combineDrugsWithTaken(drugs, takenMap) {
+  return drugs.map((drug) => {
+    const takenBy = takenMap.get(normalizeDrugKey(drug.key)) || null;
+    return {
+      ...drug,
+      is_taken: Boolean(takenBy),
+      taken_by: takenBy,
+    };
   });
 }
 
@@ -395,31 +588,12 @@ function requireAdmin(req, res) {
 
 async function handlePublicDrugs(res) {
   try {
-    const result = await dbQuery('select id, drug_key, team_number from public.group_submissions');
-    const submissions = result.rows || [];
+    const [drugs, submissions] = await Promise.all([getDrugRows({ activeOnly: false }), getSubmissionRows()]);
+    const takenMap = createTakenMap(submissions);
 
-    const takenMap = new Map();
-    submissions.forEach((submission) => {
-      if (submission.drug_key) {
-        takenMap.set(normalizeDrugKey(submission.drug_key), {
-          submission_id: submission.id,
-          team_number: submission.team_number,
-        });
-      }
+    sendJson(res, 200, {
+      drugs: combineDrugsWithTaken(drugs, takenMap),
     });
-
-    const drugs = HARDCODED_DRUGS.map((drug) => {
-      const takenBy = takenMap.get(drug.key) || null;
-      return {
-        key: drug.key,
-        name: drug.name,
-        is_active: Boolean(drug.is_active),
-        is_taken: Boolean(takenBy),
-        taken_by: takenBy,
-      };
-    });
-
-    sendJson(res, 200, { drugs });
   } catch (error) {
     if (isSchemaMigrationError(error)) {
       sendMigrationError(res);
@@ -445,26 +619,28 @@ async function insertSubmission(cleaned) {
     cleaned.drug_name,
   ];
 
-  const sql = `
-    insert into public.group_submissions
-      (course_group, team_number, leader_name, leader_email, leader_phone, students, drug_key, drug_name)
-    values
-      ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
-    returning
-      id,
-      course_group,
-      team_number,
-      leader_name,
-      leader_email,
-      leader_phone,
-      students,
-      drug_key,
-      drug_name,
-      created_at,
-      updated_at
-  `;
+  const result = await dbQuery(
+    `
+      insert into public.group_submissions
+        (course_group, team_number, leader_name, leader_email, leader_phone, students, drug_key, drug_name)
+      values
+        ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+      returning
+        id,
+        course_group,
+        team_number,
+        leader_name,
+        leader_email,
+        leader_phone,
+        students,
+        drug_key,
+        drug_name,
+        created_at,
+        updated_at
+    `,
+    values,
+  );
 
-  const result = await dbQuery(sql, values);
   return result.rows[0] || null;
 }
 
@@ -485,8 +661,13 @@ async function handlePublicSubmission(req, res) {
   }
 
   try {
-    const selectedDrug = getHardcodedDrugByKey(cleaned.drug_key);
-    if (!selectedDrug || !selectedDrug.is_active) {
+    const selectedDrug = await getDrugByKey(cleaned.drug_key);
+    if (!selectedDrug) {
+      sendJson(res, 400, { error: 'This drug does not exist.' });
+      return;
+    }
+
+    if (!selectedDrug.is_active) {
       sendJson(res, 400, { error: 'This drug is not available for selection.' });
       return;
     }
@@ -496,6 +677,8 @@ async function handlePublicSubmission(req, res) {
       sendJson(res, 409, { error: `This drug is already taken by Group ${takenBy.team_number}.` });
       return;
     }
+
+    cleaned.drug_name = selectedDrug.name;
 
     const submission = await insertSubmission(cleaned);
     sendJson(res, 201, {
@@ -523,45 +706,11 @@ async function handlePublicSubmission(req, res) {
 
 async function handleAdminOverview(res) {
   try {
-    const result = await dbQuery(`
-      select
-        id,
-        course_group,
-        team_number,
-        leader_name,
-        leader_email,
-        leader_phone,
-        students,
-        drug_key,
-        drug_name,
-        created_at,
-        updated_at
-      from public.group_submissions
-      order by created_at asc
-    `);
-
-    const submissions = result.rows || [];
-
-    const takenByKey = new Map();
-    submissions.forEach((submission) => {
-      if (submission.drug_key) {
-        takenByKey.set(normalizeDrugKey(submission.drug_key), {
-          submission_id: submission.id,
-          team_number: submission.team_number,
-        });
-      }
-    });
-
-    const drugs = HARDCODED_DRUGS.map((drug) => ({
-      key: drug.key,
-      name: drug.name,
-      is_active: Boolean(drug.is_active),
-      is_taken: takenByKey.has(drug.key),
-      taken_by: takenByKey.get(drug.key) || null,
-    }));
+    const [drugs, submissions] = await Promise.all([getDrugRows({ activeOnly: false }), getSubmissionRows()]);
+    const takenMap = createTakenMap(submissions);
 
     sendJson(res, 200, {
-      drugs,
+      drugs: combineDrugsWithTaken(drugs, takenMap),
       submissions,
     });
   } catch (error) {
@@ -579,6 +728,7 @@ async function handleAdminOverview(res) {
 
 async function handleAdminCreateSubmission(req, res) {
   let body;
+
   try {
     body = await parseJsonBody(req);
   } catch (error) {
@@ -593,7 +743,7 @@ async function handleAdminCreateSubmission(req, res) {
   }
 
   try {
-    const selectedDrug = getHardcodedDrugByKey(cleaned.drug_key);
+    const selectedDrug = await getDrugByKey(cleaned.drug_key);
     if (!selectedDrug) {
       sendJson(res, 400, { error: 'Drug does not exist.' });
       return;
@@ -604,6 +754,8 @@ async function handleAdminCreateSubmission(req, res) {
       sendJson(res, 409, { error: `Drug already used by Group ${takenBy.team_number}.` });
       return;
     }
+
+    cleaned.drug_name = selectedDrug.name;
 
     const submission = await insertSubmission(cleaned);
     sendJson(res, 201, {
@@ -636,6 +788,7 @@ async function handleAdminUpdateSubmission(req, res, id) {
   }
 
   let body;
+
   try {
     body = await parseJsonBody(req);
   } catch (error) {
@@ -656,7 +809,7 @@ async function handleAdminUpdateSubmission(req, res, id) {
 
   try {
     if (cleaned.drug_key) {
-      const selectedDrug = getHardcodedDrugByKey(cleaned.drug_key);
+      const selectedDrug = await getDrugByKey(cleaned.drug_key);
       if (!selectedDrug) {
         sendJson(res, 400, { error: 'Drug does not exist.' });
         return;
@@ -667,6 +820,8 @@ async function handleAdminUpdateSubmission(req, res, id) {
         sendJson(res, 409, { error: `Drug already used by Group ${takenBy.team_number}.` });
         return;
       }
+
+      cleaned.drug_name = selectedDrug.name;
     }
 
     const allowedColumns = {
@@ -705,27 +860,29 @@ async function handleAdminUpdateSubmission(req, res, id) {
     }
 
     values.push(id);
-    const idParam = values.length;
+    const idParameterPosition = values.length;
 
-    const sql = `
-      update public.group_submissions
-      set ${setClauses.join(', ')}
-      where id = $${idParam}::uuid
-      returning
-        id,
-        course_group,
-        team_number,
-        leader_name,
-        leader_email,
-        leader_phone,
-        students,
-        drug_key,
-        drug_name,
-        created_at,
-        updated_at
-    `;
+    const result = await dbQuery(
+      `
+        update public.group_submissions
+        set ${setClauses.join(', ')}
+        where id = $${idParameterPosition}::uuid
+        returning
+          id,
+          course_group,
+          team_number,
+          leader_name,
+          leader_email,
+          leader_phone,
+          students,
+          drug_key,
+          drug_name,
+          created_at,
+          updated_at
+      `,
+      values,
+    );
 
-    const result = await dbQuery(sql, values);
     if (result.rows.length === 0) {
       sendJson(res, 404, { error: 'Submission not found.' });
       return;
@@ -771,6 +928,231 @@ async function handleAdminDeleteSubmission(res, id) {
   } catch (error) {
     sendJson(res, 500, {
       error: 'Failed to delete submission.',
+      details: getDbErrorMessage(error),
+    });
+  }
+}
+
+async function handleAdminListDrugs(res) {
+  try {
+    const submissions = await getSubmissionRows();
+    const takenMap = createTakenMap(submissions);
+    const drugs = await getDrugRows({ activeOnly: false });
+
+    sendJson(res, 200, {
+      drugs: combineDrugsWithTaken(drugs, takenMap),
+    });
+  } catch (error) {
+    if (isSchemaMigrationError(error)) {
+      sendMigrationError(res);
+      return;
+    }
+
+    sendJson(res, 500, {
+      error: 'Failed to load drugs.',
+      details: getDbErrorMessage(error),
+    });
+  }
+}
+
+async function handleAdminCreateDrug(req, res) {
+  let body;
+
+  try {
+    body = await parseJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+    return;
+  }
+
+  const { errors, cleaned } = normalizeAdminDrugPayload(body, { partial: false });
+  if (errors.length > 0) {
+    sendJson(res, 400, { error: errors.join(' ') });
+    return;
+  }
+
+  if (!cleaned.key || !DRUG_KEY_REGEX.test(cleaned.key)) {
+    sendJson(res, 400, { error: 'Drug key must use lowercase letters, numbers, and dashes only.' });
+    return;
+  }
+
+  try {
+    const result = await dbQuery(
+      `
+        insert into public.drugs (key, name, is_active, sort_order)
+        values ($1, $2, $3, $4)
+        returning
+          lower(key) as key,
+          name,
+          is_active,
+          sort_order,
+          created_at,
+          updated_at
+      `,
+      [cleaned.key, cleaned.name, cleaned.is_active, cleaned.sort_order],
+    );
+
+    sendJson(res, 201, {
+      message: 'Drug created.',
+      drug: result.rows[0],
+    });
+  } catch (error) {
+    const mapped = mapDrugConstraintError(error);
+    if (mapped) {
+      sendJson(res, mapped.status, { error: mapped.message });
+      return;
+    }
+
+    if (isSchemaMigrationError(error)) {
+      sendMigrationError(res);
+      return;
+    }
+
+    sendJson(res, 500, {
+      error: 'Failed to create drug.',
+      details: getDbErrorMessage(error),
+    });
+  }
+}
+
+async function handleAdminUpdateDrug(req, res, keyParam) {
+  const key = normalizeDrugKey(keyParam);
+  if (!key) {
+    sendJson(res, 400, { error: 'Invalid drug key.' });
+    return;
+  }
+
+  let body;
+
+  try {
+    body = await parseJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+    return;
+  }
+
+  const { errors, cleaned } = normalizeAdminDrugPayload(body, { partial: true });
+  if (errors.length > 0) {
+    sendJson(res, 400, { error: errors.join(' ') });
+    return;
+  }
+
+  const setClauses = [];
+  const values = [];
+
+  if (cleaned.name !== undefined) {
+    values.push(cleaned.name);
+    setClauses.push(`name = $${values.length}`);
+  }
+
+  if (cleaned.is_active !== undefined) {
+    values.push(cleaned.is_active);
+    setClauses.push(`is_active = $${values.length}`);
+  }
+
+  if (cleaned.sort_order !== undefined) {
+    values.push(cleaned.sort_order);
+    setClauses.push(`sort_order = $${values.length}`);
+  }
+
+  if (setClauses.length === 0) {
+    sendJson(res, 400, { error: 'No valid fields to update.' });
+    return;
+  }
+
+  values.push(key);
+  const keyParameterPosition = values.length;
+
+  try {
+    const result = await dbQuery(
+      `
+        update public.drugs
+        set ${setClauses.join(', ')}
+        where lower(key) = $${keyParameterPosition}
+        returning
+          lower(key) as key,
+          name,
+          is_active,
+          sort_order,
+          created_at,
+          updated_at
+      `,
+      values,
+    );
+
+    if (result.rows.length === 0) {
+      sendJson(res, 404, { error: 'Drug not found.' });
+      return;
+    }
+
+    const updatedDrug = result.rows[0];
+
+    if (cleaned.name !== undefined) {
+      await dbQuery('update public.group_submissions set drug_name = $1 where lower(drug_key) = $2', [
+        updatedDrug.name,
+        key,
+      ]);
+    }
+
+    sendJson(res, 200, {
+      message: 'Drug updated.',
+      drug: updatedDrug,
+    });
+  } catch (error) {
+    const mapped = mapDrugConstraintError(error);
+    if (mapped) {
+      sendJson(res, mapped.status, { error: mapped.message });
+      return;
+    }
+
+    if (isSchemaMigrationError(error)) {
+      sendMigrationError(res);
+      return;
+    }
+
+    sendJson(res, 500, {
+      error: 'Failed to update drug.',
+      details: getDbErrorMessage(error),
+    });
+  }
+}
+
+async function handleAdminDeleteDrug(res, keyParam) {
+  const key = normalizeDrugKey(keyParam);
+  if (!key) {
+    sendJson(res, 400, { error: 'Invalid drug key.' });
+    return;
+  }
+
+  try {
+    const takenBy = await getDrugTakenBySubmission(key);
+    if (takenBy) {
+      sendJson(res, 409, { error: `Drug is already used by Group ${takenBy.team_number}. Remove that submission first.` });
+      return;
+    }
+
+    const result = await dbQuery(
+      'delete from public.drugs where lower(key) = $1 returning lower(key) as key, name, is_active, sort_order',
+      [key],
+    );
+
+    if (result.rows.length === 0) {
+      sendJson(res, 404, { error: 'Drug not found.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      message: 'Drug deleted.',
+      drug: result.rows[0],
+    });
+  } catch (error) {
+    if (isSchemaMigrationError(error)) {
+      sendMigrationError(res);
+      return;
+    }
+
+    sendJson(res, 500, {
+      error: 'Failed to delete drug.',
       details: getDbErrorMessage(error),
     });
   }
@@ -828,9 +1210,28 @@ async function handleApi(req, res, pathname) {
     }
   }
 
-  if (pathname === '/api/admin/drugs' || pathname.startsWith('/api/admin/drugs/')) {
-    sendJson(res, 410, { error: 'Drug list is hardcoded and cannot be edited from admin.' });
+  if (pathname === '/api/admin/drugs' && req.method === 'GET') {
+    await handleAdminListDrugs(res);
     return;
+  }
+
+  if (pathname === '/api/admin/drugs' && req.method === 'POST') {
+    await handleAdminCreateDrug(req, res);
+    return;
+  }
+
+  if (pathname.startsWith('/api/admin/drugs/')) {
+    const key = pathname.split('/').pop();
+
+    if (req.method === 'PATCH') {
+      await handleAdminUpdateDrug(req, res, key);
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      await handleAdminDeleteDrug(res, key);
+      return;
+    }
   }
 
   sendJson(res, 404, { error: 'API route not found.' });

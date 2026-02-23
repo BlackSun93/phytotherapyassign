@@ -1,8 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --primary: #4f46e5;
-  --primary-hover: #4338ca;
+  --primary: #0b67c2;
+  --primary-hover: #0854a0;
   --secondary: #f8fafc;
   --secondary-hover: #f1f5f9;
   --success: #10b981;
@@ -13,7 +13,7 @@
   --bg-page: #f8fafc;
   --card-bg: rgba(255, 255, 255, 0.85);
   --border: #e2e8f0;
-  --ring: rgba(79, 70, 229, 0.3);
+  --ring: rgba(11, 103, 194, 0.3);
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
@@ -132,13 +132,13 @@ input:focus, select:focus, textarea:focus {
 .btn:active { transform: scale(0.98); }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-primary { 
-  background: linear-gradient(135deg, var(--primary), #6366f1); 
+  background: linear-gradient(135deg, var(--primary), #0ea5e9); 
   color: white; 
-  box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2), 0 2px 4px -1px rgba(79, 70, 229, 0.1); 
+  box-shadow: 0 4px 6px -1px rgba(11, 103, 194, 0.25), 0 2px 4px -1px rgba(11, 103, 194, 0.12); 
 }
 .btn-primary:hover:not(:disabled) { 
-  background: linear-gradient(135deg, var(--primary-hover), #4f46e5); 
-  box-shadow: 0 6px 10px -1px rgba(79, 70, 229, 0.3), 0 2px 4px -1px rgba(79, 70, 229, 0.15); 
+  background: linear-gradient(135deg, var(--primary-hover), #0284c7); 
+  box-shadow: 0 6px 10px -1px rgba(11, 103, 194, 0.35), 0 2px 4px -1px rgba(11, 103, 194, 0.18); 
   transform: translateY(-1px); 
 }
 .btn-secondary { 
@@ -208,7 +208,7 @@ input:focus, select:focus, textarea:focus {
   font-weight: 500; 
   font-size: 0.95rem; 
   margin-top: 20px; 
-  display: empty ? none : block; 
+  display: block; 
   transition: all 0.3s; 
   animation: fadeIn 0.3s ease-out;
 }
@@ -237,9 +237,18 @@ input:focus, select:focus, textarea:focus {
   color: #334155;
 }
 .student-chip:hover { border-color: #94a3b8; box-shadow: var(--shadow-md); transform: translateY(-1px); }
-.student-chip.selected { background: #eef2ff; border-color: var(--primary); color: #3730a3; box-shadow: 0 0 0 1px var(--primary); }
+.student-chip.selected { background: #e0f2fe; border-color: var(--primary); color: #0c4a6e; box-shadow: 0 0 0 1px var(--primary); }
 .student-chip.empty { background: transparent; border: 2px dashed #cbd5e1; color: var(--text-muted); cursor: default; justify-content: center; font-style: italic; box-shadow: none; }
 .student-chip.empty:hover { border-color: #cbd5e1; transform: none; }
+
+.admin-checkbox-wrap {
+  align-items: flex-start;
+}
+
+.admin-checkbox-wrap input[type='checkbox'] {
+  width: auto;
+  margin-top: 6px;
+}
 
 /* Tables */
 .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); background: #ffffff; margin-top: 16px; box-shadow: var(--shadow-sm); }

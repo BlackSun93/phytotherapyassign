@@ -1,18 +1,28 @@
 # Phytotherapy Assignment Platform
 
-Simple 2-page flow for student groups:
+Simple 2-page flow for group registration:
 - Page 1 (`/`): choose one available drug from a visual card list.
 - Page 2 (`/group`): submit group, leader info, and students.
-- Drug list is hardcoded in the backend.
-- Database is used only to save submissions and lock selected drugs.
+- Admin page (`/admin?token=...`): full management of drugs and group submissions.
+
+## Features
+
+- Drug locking: once a group submits a drug, it becomes taken.
+- Group submission fields: group number, leader name/email/phone, students (ID + name), selected drug.
+- Admin controls:
+  - Add/edit/delete drugs
+  - Activate/deactivate drugs
+  - Reorder drugs with sort order
+  - Create/edit/delete group submissions
 
 ## Database (Neon via Vercel Marketplace)
 
-1. Create/connect a Neon database from Vercel Marketplace.
-2. In Neon SQL editor, run:
+Run one of the following in Neon SQL editor:
+
+1. New database:
    - `/Users/mohamedosama/phytotherapyassign/supabase/schema.sql`
-3. If you are migrating an older DB version, run:
-   - `/Users/mohamedosama/phytotherapyassign/supabase/migrate_to_hardcoded_drugs.sql`
+2. Existing project migration to full management:
+   - `/Users/mohamedosama/phytotherapyassign/supabase/migrate_to_full_management.sql`
 
 ## Environment Variables
 
@@ -24,6 +34,7 @@ Optional:
 - `PORT` (local only)
 
 Copy template:
+
 ```bash
 cp /Users/mohamedosama/phytotherapyassign/.env.example /Users/mohamedosama/phytotherapyassign/.env
 ```
@@ -46,10 +57,3 @@ Open:
 This repo includes `/Users/mohamedosama/phytotherapyassign/vercel.json`, routing all paths (including `/api/*`) to `server.js`.
 
 After setting env vars, deploy branch `main`.
-
-## Notes
-
-- Hardcoded 20-drug list is in `/Users/mohamedosama/phytotherapyassign/server.js` (`HARDCODED_DRUGS`).
-- Group number range is `1..20`.
-- Students are stored as JSON (`student_id`, `student_name`).
-- Admin can add/edit/delete submissions only.

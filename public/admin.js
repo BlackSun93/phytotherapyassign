@@ -1,9 +1,19 @@
 const adminWarningEl = document.getElementById('admin-warning');
 const adminStatusEl = document.getElementById('admin-status');
+
 const submissionForm = document.getElementById('admin-submission-form');
 const clearSubmissionFormBtn = document.getElementById('clear-submission-form');
 const submissionsTable = document.getElementById('submissions-table');
-const drugSelect = document.getElementById('admin-drug-id');
+const submissionDrugSelect = document.getElementById('admin-drug-id');
+
+const drugForm = document.getElementById('admin-drug-form');
+const clearDrugFormBtn = document.getElementById('clear-drug-form');
+const drugsTable = document.getElementById('drugs-table');
+const drugOriginalKeyInput = document.getElementById('drug-original-key');
+const drugNameInput = document.getElementById('admin-drug-name');
+const drugKeyInput = document.getElementById('admin-drug-key');
+const drugSortInput = document.getElementById('admin-drug-sort');
+const drugActiveInput = document.getElementById('admin-drug-active');
 
 const token = new URLSearchParams(window.location.search).get('token') || '';
 
@@ -30,10 +40,12 @@ async function adminFetch(path, options = {}) {
     throw new Error('Missing admin token');
   }
 
+  const hasBody = options.body !== undefined;
+
   const response = await fetch(path, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
       'x-admin-token': token,
       ...(options.headers || {}),
     },
@@ -74,36 +86,45 @@ function getDrugNameByKey(drugKey) {
   return drugs.find((drug) => drug.key === drugKey)?.name || '-';
 }
 
-function renderDrugSelect(selectedDrugKey = '') {
-  drugSelect.innerHTML = '';
+function renderSubmissionDrugSelect(selectedDrugKey = '') {
+  submissionDrugSelect.innerHTML = '';
 
   const placeholder = document.createElement('option');
   placeholder.value = '';
   placeholder.textContent = 'Select drug';
   placeholder.disabled = true;
   placeholder.selected = true;
-  drugSelect.appendChild(placeholder);
+  submissionDrugSelect.appendChild(placeholder);
 
   drugs.forEach((drug) => {
     const option = document.createElement('option');
     option.value = drug.key;
-    option.textContent = `${drug.name}${drug.is_taken ? ' (taken)' : ''}`;
-    drugSelect.appendChild(option);
+    option.textContent = `${drug.name}${drug.is_taken ? ` (taken by Group ${drug.taken_by?.team_number ?? '-'})` : ''}${
+      !drug.is_active ? ' (inactive)' : ''
+    }`;
+    submissionDrugSelect.appendChild(option);
   });
 
   if (selectedDrugKey) {
-    drugSelect.value = selectedDrugKey;
+    submissionDrugSelect.value = selectedDrugKey;
   }
 }
 
 function renderSubmissionsTable() {
   submissionsTable.innerHTML = '';
 
+  if (!submissions.length) {
+    const empty = document.createElement('tr');
+    empty.innerHTML = '<td colspan="5">No submissions yet.</td>';
+    submissionsTable.appendChild(empty);
+    return;
+  }
+
   submissions.forEach((submission) => {
     const tr = document.createElement('tr');
 
-    const teamTd = document.createElement('td');
-    teamTd.textContent = submission.team_number;
+    const groupTd = document.createElement('td');
+    groupTd.textContent = submission.team_number;
 
     const leaderTd = document.createElement('td');
     leaderTd.textContent = `${submission.leader_name}\n${submission.leader_email}\n${submission.leader_phone}`;
@@ -131,9 +152,7 @@ function renderSubmissionsTable() {
       }
 
       try {
-        await adminFetch(`/api/admin/submissions/${submission.id}`, {
-          method: 'DELETE',
-        });
+        await adminFetch(`/api/admin/submissions/${submission.id}`, { method: 'DELETE' });
         setStatus('Submission deleted.', 'success');
         await loadOverview();
       } catch (error) {
@@ -142,25 +161,104 @@ function renderSubmissionsTable() {
     });
 
     actionsTd.append(editBtn, deleteBtn);
-    tr.append(teamTd, leaderTd, drugTd, studentsTd, actionsTd);
+    tr.append(groupTd, leaderTd, drugTd, studentsTd, actionsTd);
     submissionsTable.appendChild(tr);
   });
 }
 
 function fillSubmissionForm(submission) {
   document.getElementById('submission-id').value = submission.id;
-  document.getElementById('admin-team-number').value = submission.team_number;
+  document.getElementById('admin-group-number').value = submission.team_number;
   document.getElementById('admin-leader-name').value = submission.leader_name;
   document.getElementById('admin-leader-email').value = submission.leader_email;
   document.getElementById('admin-leader-phone').value = submission.leader_phone;
   document.getElementById('admin-students').value = studentsToText(submission.students);
-  renderDrugSelect(submission.drug_key || '');
+  renderSubmissionDrugSelect(submission.drug_key || '');
 }
 
 function clearSubmissionForm() {
   submissionForm.reset();
   document.getElementById('submission-id').value = '';
-  renderDrugSelect();
+  renderSubmissionDrugSelect();
+}
+
+function renderDrugsTable() {
+  drugsTable.innerHTML = '';
+
+  if (!drugs.length) {
+    const empty = document.createElement('tr');
+    empty.innerHTML = '<td colspan="6">No drugs yet.</td>';
+    drugsTable.appendChild(empty);
+    return;
+  }
+
+  drugs.forEach((drug) => {
+    const tr = document.createElement('tr');
+
+    const keyTd = document.createElement('td');
+    keyTd.textContent = drug.key;
+
+    const nameTd = document.createElement('td');
+    nameTd.textContent = drug.name;
+
+    const activeTd = document.createElement('td');
+    activeTd.textContent = drug.is_active ? 'Yes' : 'No';
+
+    const takenTd = document.createElement('td');
+    takenTd.textContent = drug.is_taken ? `Yes (Group ${drug.taken_by?.team_number ?? '-'})` : 'No';
+
+    const sortTd = document.createElement('td');
+    sortTd.textContent = String(drug.sort_order ?? 0);
+
+    const actionsTd = document.createElement('td');
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn btn-secondary';
+    editBtn.textContent = 'Edit';
+    editBtn.addEventListener('click', () => fillDrugForm(drug));
+
+    const deleteBtn = document.createElement('button');
+    deleteBtn.className = 'btn btn-danger';
+    deleteBtn.textContent = 'Delete';
+    deleteBtn.disabled = Boolean(drug.is_taken);
+    deleteBtn.addEventListener('click', async () => {
+      if (!window.confirm(`Delete drug "${drug.name}"?`)) {
+        return;
+      }
+
+      try {
+        await adminFetch(`/api/admin/drugs/${encodeURIComponent(drug.key)}`, { method: 'DELETE' });
+        clearDrugForm();
+        setStatus('Drug deleted.', 'success');
+        await loadOverview();
+      } catch (error) {
+        setStatus(error.message, 'error');
+      }
+    });
+
+    actionsTd.append(editBtn, deleteBtn);
+    tr.append(keyTd, nameTd, activeTd, takenTd, sortTd, actionsTd);
+    drugsTable.appendChild(tr);
+  });
+}
+
+function fillDrugForm(drug) {
+  drugOriginalKeyInput.value = drug.key;
+  drugNameInput.value = drug.name;
+  drugKeyInput.value = drug.key;
+  drugKeyInput.disabled = true;
+  drugSortInput.value = drug.sort_order ?? 0;
+  drugActiveInput.checked = Boolean(drug.is_active);
+}
+
+function clearDrugForm() {
+  drugForm.reset();
+  drugOriginalKeyInput.value = '';
+  drugNameInput.value = '';
+  drugKeyInput.value = '';
+  drugKeyInput.disabled = false;
+  drugSortInput.value = '';
+  drugActiveInput.checked = true;
 }
 
 async function loadOverview() {
@@ -177,8 +275,9 @@ async function loadOverview() {
   drugs = data.drugs || [];
   submissions = data.submissions || [];
 
-  renderDrugSelect();
+  renderSubmissionDrugSelect();
   renderSubmissionsTable();
+  renderDrugsTable();
 }
 
 submissionForm.addEventListener('submit', async (event) => {
@@ -193,7 +292,7 @@ submissionForm.addEventListener('submit', async (event) => {
   }
 
   const payload = {
-    teamNumber: Number.parseInt(document.getElementById('admin-team-number').value, 10),
+    teamNumber: Number.parseInt(document.getElementById('admin-group-number').value, 10),
     leaderName: document.getElementById('admin-leader-name').value.trim(),
     leaderEmail: document.getElementById('admin-leader-email').value.trim(),
     leaderPhone: document.getElementById('admin-leader-phone').value.trim(),
@@ -223,11 +322,54 @@ submissionForm.addEventListener('submit', async (event) => {
   }
 });
 
+drugForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+
+  const originalKey = drugOriginalKeyInput.value.trim();
+  const payload = {
+    name: drugNameInput.value.trim(),
+    sortOrder: Number.parseInt(drugSortInput.value || '0', 10),
+    isActive: Boolean(drugActiveInput.checked),
+  };
+
+  if (!originalKey) {
+    payload.key = drugKeyInput.value.trim().toLowerCase();
+  }
+
+  try {
+    if (originalKey) {
+      await adminFetch(`/api/admin/drugs/${encodeURIComponent(originalKey)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      });
+      setStatus('Drug updated.', 'success');
+    } else {
+      await adminFetch('/api/admin/drugs', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      setStatus('Drug created.', 'success');
+    }
+
+    clearDrugForm();
+    await loadOverview();
+  } catch (error) {
+    setStatus(error.message, 'error');
+  }
+});
+
 clearSubmissionFormBtn.addEventListener('click', () => {
   clearSubmissionForm();
   setStatus('');
 });
 
+clearDrugFormBtn.addEventListener('click', () => {
+  clearDrugForm();
+  setStatus('');
+});
+
+clearDrugForm();
+clearSubmissionForm();
 loadOverview().catch((error) => {
   setStatus(error.message, 'error');
 });

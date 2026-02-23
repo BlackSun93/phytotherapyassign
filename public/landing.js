@@ -20,7 +20,7 @@ function renderDrugs(drugs) {
   gridEl.innerHTML = '';
 
   if (!drugs.length) {
-    setStatus('No hardcoded drugs found.', 'error');
+    setStatus('No drugs found. Ask admin to add drugs from the admin page.', 'error');
     return;
   }
 
