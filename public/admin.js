@@ -6,7 +6,7 @@ const submissionsTable = document.getElementById('submissions-table');
 const submissionDrugSelect = document.getElementById('admin-drug-id');
 
 const drugForm = document.getElementById('admin-drug-form');
-const clearDrugFormBtn = document.getElementById('clear-drug-form');
+const saveDrugBtn = document.getElementById('save-drug-btn');
 const drugsTable = document.getElementById('drugs-table');
 const drugOriginalKeyInput = document.getElementById('drug-original-key');
 const drugNameInput = document.getElementById('admin-drug-name');
@@ -163,6 +163,11 @@ function clearSubmissionForm() {
   renderSubmissionDrugSelect();
 }
 
+function updateDrugSubmitButtonLabel() {
+  const isEditMode = Boolean(drugOriginalKeyInput.value.trim());
+  saveDrugBtn.textContent = isEditMode ? 'Update Drug' : 'Add Drug';
+}
+
 function renderDrugsTable() {
   drugsTable.innerHTML = '';
 
@@ -225,6 +230,7 @@ function fillDrugForm(drug) {
   drugNameInput.value = drug.name;
   drugSortInput.value = drug.sort_order ?? 0;
   drugActiveInput.checked = Boolean(drug.is_active);
+  updateDrugSubmitButtonLabel();
 }
 
 function clearDrugForm() {
@@ -233,6 +239,7 @@ function clearDrugForm() {
   drugNameInput.value = '';
   drugSortInput.value = '';
   drugActiveInput.checked = true;
+  updateDrugSubmitButtonLabel();
 }
 
 async function loadOverview() {
@@ -326,11 +333,6 @@ drugForm.addEventListener('submit', async (event) => {
 
 clearSubmissionFormBtn.addEventListener('click', () => {
   clearSubmissionForm();
-  setStatus('');
-});
-
-clearDrugFormBtn.addEventListener('click', () => {
-  clearDrugForm();
   setStatus('');
 });
 
