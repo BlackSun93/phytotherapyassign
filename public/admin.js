@@ -1,4 +1,3 @@
-const adminWarningEl = document.getElementById('admin-warning');
 const adminStatusEl = document.getElementById('admin-status');
 
 const submissionForm = document.getElementById('admin-submission-form');
@@ -15,8 +14,6 @@ const drugKeyInput = document.getElementById('admin-drug-key');
 const drugSortInput = document.getElementById('admin-drug-sort');
 const drugActiveInput = document.getElementById('admin-drug-active');
 
-const token = new URLSearchParams(window.location.search).get('token') || '';
-
 let drugs = [];
 let submissions = [];
 
@@ -25,28 +22,13 @@ function setStatus(message, type = 'success') {
   adminStatusEl.className = `status ${type}`;
 }
 
-function ensureToken() {
-  if (token) {
-    return true;
-  }
-
-  adminWarningEl.hidden = false;
-  adminWarningEl.textContent = 'Missing admin token. Open this page with ?token=YOUR_ADMIN_DASHBOARD_TOKEN';
-  return false;
-}
-
 async function adminFetch(path, options = {}) {
-  if (!ensureToken()) {
-    throw new Error('Missing admin token');
-  }
-
   const hasBody = options.body !== undefined;
 
   const response = await fetch(path, {
     ...options,
     headers: {
       ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
-      'x-admin-token': token,
       ...(options.headers || {}),
     },
   });
@@ -262,10 +244,6 @@ function clearDrugForm() {
 }
 
 async function loadOverview() {
-  if (!ensureToken()) {
-    return;
-  }
-
   const data = await adminFetch('/api/admin/overview', {
     headers: {
       'Cache-Control': 'no-store',

@@ -3,7 +3,7 @@
 Simple 2-page flow for group registration:
 - Page 1 (`/`): choose one available drug from a visual card list.
 - Page 2 (`/group`): submit group, leader info, and students.
-- Admin page (`/admin?token=...`): full management of drugs and group submissions.
+- Admin page (`/admin`): full management of drugs and group submissions.
 
 ## Features
 
@@ -35,7 +35,6 @@ Run one of the following in Neon SQL editor:
 
 Set these locally in `.env` and in Vercel project settings:
 - `DATABASE_URL` (or `POSTGRES_URL` from Vercel Marketplace Neon)
-- `ADMIN_DASHBOARD_TOKEN`
 
 Optional:
 - `PORT` (local only)
@@ -57,7 +56,7 @@ npm start
 Open:
 - Drug list: [http://localhost:3000](http://localhost:3000)
 - Group form: [http://localhost:3000/group](http://localhost:3000/group)
-- Admin: `http://localhost:3000/admin?token=YOUR_ADMIN_DASHBOARD_TOKEN`
+- Admin: `http://localhost:3000/admin`
 
 ## Deploy To Vercel
 

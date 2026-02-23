@@ -37,7 +37,6 @@ const PORT = Number.parseInt(process.env.PORT || '3000', 10);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const DATABASE_URL = process.env.DATABASE_URL || process.env.POSTGRES_URL || '';
-const ADMIN_DASHBOARD_TOKEN = process.env.ADMIN_DASHBOARD_TOKEN || 'change-this-admin-token';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -685,16 +684,6 @@ async function getDrugTakenBySubmission(drugKey, excludeSubmissionId = null, cli
 
   const result = await runQuery(client, sql, values);
   return result.rows[0] || null;
-}
-
-function requireAdmin(req, res) {
-  const token = toCleanString(req.headers['x-admin-token']);
-  if (!token || token !== ADMIN_DASHBOARD_TOKEN) {
-    sendJson(res, 401, { error: 'Unauthorized admin request.' });
-    return false;
-  }
-
-  return true;
 }
 
 async function handlePublicDrugs(res, requestUrl) {
@@ -1514,10 +1503,6 @@ async function handleApi(req, res, pathname, requestUrl) {
 
   if (!pathname.startsWith('/api/admin/')) {
     sendJson(res, 404, { error: 'API route not found.' });
-    return;
-  }
-
-  if (!requireAdmin(req, res)) {
     return;
   }
 
