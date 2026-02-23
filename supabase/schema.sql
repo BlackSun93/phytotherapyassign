@@ -9,6 +9,17 @@ create table if not exists public.drugs (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.drug_reservations (
+  drug_key text primary key references public.drugs(key) on update cascade on delete cascade,
+  holder_token text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+create index if not exists drug_reservations_expires_at_idx
+on public.drug_reservations (expires_at);
+
 create table if not exists public.group_submissions (
   id uuid primary key default gen_random_uuid(),
   course_group smallint not null default 1 check (course_group between 1 and 4),
@@ -44,6 +55,12 @@ execute function public.set_updated_at_timestamp();
 drop trigger if exists set_drugs_updated_at on public.drugs;
 create trigger set_drugs_updated_at
 before update on public.drugs
+for each row
+execute function public.set_updated_at_timestamp();
+
+drop trigger if exists set_drug_reservations_updated_at on public.drug_reservations;
+create trigger set_drug_reservations_updated_at
+before update on public.drug_reservations
 for each row
 execute function public.set_updated_at_timestamp();
 

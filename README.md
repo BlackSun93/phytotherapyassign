@@ -8,6 +8,11 @@ Simple 2-page flow for group registration:
 ## Features
 
 - Drug locking: once a group submits a drug, it becomes taken.
+- Temporary reservation lock (lease):
+  - `/group` reserves selected drug for 10 minutes.
+  - Heartbeat renews reservation every 30 seconds while page is open.
+  - Home list marks reserved drugs as unavailable.
+  - Submit requires matching reservation token.
 - Group submission fields: group number, leader name/email/phone, students (ID + name), selected drug.
 - Admin controls:
   - Add/edit/delete drugs
@@ -23,6 +28,8 @@ Run one of the following in Neon SQL editor:
    - `/Users/mohamedosama/phytotherapyassign/supabase/schema.sql`
 2. Existing project migration to full management:
    - `/Users/mohamedosama/phytotherapyassign/supabase/migrate_to_full_management.sql`
+3. If you already deployed full management before this reservation update, run:
+   - `/Users/mohamedosama/phytotherapyassign/supabase/migrate_add_reservations.sql`
 
 ## Environment Variables
 

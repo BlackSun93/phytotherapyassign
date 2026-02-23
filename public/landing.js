@@ -13,6 +13,9 @@ function buildStatusTag(drug) {
   if (drug.is_taken) {
     return { text: 'Taken', cls: 'taken' };
   }
+  if (drug.is_reserved) {
+    return { text: 'Reserved', cls: 'reserved' };
+  }
   return { text: 'Available', cls: 'available' };
 }
 
@@ -48,6 +51,8 @@ function renderDrugs(drugs) {
       details.textContent = 'This drug is currently inactive.';
     } else if (drug.is_taken && drug.taken_by) {
       details.textContent = `Locked by Group ${drug.taken_by.team_number}.`;
+    } else if (drug.is_reserved) {
+      details.textContent = 'Temporarily reserved by another group.';
     } else {
       details.textContent = 'Click select to continue with this drug.';
     }
@@ -55,8 +60,8 @@ function renderDrugs(drugs) {
     const action = document.createElement('button');
     action.className = 'btn btn-primary';
     action.type = 'button';
-    action.textContent = drug.is_active && !drug.is_taken ? 'Select Drug' : 'Unavailable';
-    action.disabled = !drug.is_active || drug.is_taken;
+    action.textContent = drug.is_active && !drug.is_taken && !drug.is_reserved ? 'Select Drug' : 'Unavailable';
+    action.disabled = !drug.is_active || drug.is_taken || drug.is_reserved;
 
     action.addEventListener('click', () => {
       window.location.href = `/group?drugKey=${encodeURIComponent(drug.key)}`;

@@ -2,6 +2,7 @@ const http = require('http');
 const fsSync = require('fs');
 const fs = require('fs/promises');
 const path = require('path');
+const { randomUUID } = require('crypto');
 const { URL } = require('url');
 const { Pool } = require('pg');
 
@@ -41,6 +42,8 @@ const ADMIN_DASHBOARD_TOKEN = process.env.ADMIN_DASHBOARD_TOKEN || 'change-this-
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DRUG_KEY_REGEX = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const RESERVATION_TTL_MINUTES = 10;
+const RESERVATION_HEARTBEAT_SECONDS = 30;
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -77,6 +80,14 @@ function getPool() {
 async function dbQuery(text, values = []) {
   const result = await getPool().query(text, values);
   return result;
+}
+
+async function runQuery(client, text, values = []) {
+  if (client) {
+    return client.query(text, values);
+  }
+
+  return dbQuery(text, values);
 }
 
 function sendJson(res, statusCode, payload) {
@@ -391,6 +402,29 @@ function normalizeAdminDrugPayload(input, { partial = false } = {}) {
   };
 }
 
+function normalizeReservationPayload(input, { requireHolderToken = false } = {}) {
+  const payload = input || {};
+  const errors = [];
+
+  const drugKey = normalizeDrugKey(payload.drugKey ?? payload.drug_key ?? payload.drugId ?? payload.drug_id);
+  if (!drugKey) {
+    errors.push('Drug key is required.');
+  }
+
+  const holderToken = toCleanString(payload.holderToken ?? payload.holder_token);
+  if (requireHolderToken && !holderToken) {
+    errors.push('Reservation holder token is required.');
+  }
+
+  return {
+    errors,
+    cleaned: {
+      drug_key: drugKey,
+      holder_token: holderToken,
+    },
+  };
+}
+
 function getDbErrorMessage(error) {
   if (!error) {
     return 'Unknown database error';
@@ -416,6 +450,10 @@ function isSchemaMigrationError(error) {
   }
 
   if (message.includes('drugs') && message.includes('does not exist')) {
+    return true;
+  }
+
+  if (message.includes('drug_reservations') && message.includes('does not exist')) {
     return true;
   }
 
@@ -464,32 +502,35 @@ function sendMigrationError(res) {
   sendJson(res, 500, {
     error: 'Database schema is not ready.',
     details:
-      'Run supabase/schema.sql for a new DB, or supabase/migrate_to_full_management.sql for an existing DB, then retry.',
+      'Run supabase/schema.sql for a new DB, or run supabase/migrate_to_full_management.sql then supabase/migrate_add_reservations.sql for existing DBs.',
   });
 }
 
-async function getSubmissionRows() {
-  const result = await dbQuery(`
-    select
-      id,
-      course_group,
-      team_number,
-      leader_name,
-      leader_email,
-      leader_phone,
-      students,
-      drug_key,
-      drug_name,
-      created_at,
-      updated_at
-    from public.group_submissions
-    order by created_at asc
-  `);
+async function getSubmissionRows(client = null) {
+  const result = await runQuery(
+    client,
+    `
+      select
+        id,
+        course_group,
+        team_number,
+        leader_name,
+        leader_email,
+        leader_phone,
+        students,
+        drug_key,
+        drug_name,
+        created_at,
+        updated_at
+      from public.group_submissions
+      order by created_at asc
+    `,
+  );
 
   return result.rows || [];
 }
 
-async function getDrugRows({ activeOnly = false } = {}) {
+async function getDrugRows({ activeOnly = false, client = null } = {}) {
   const sql = `
     select
       lower(key) as key,
@@ -503,17 +544,18 @@ async function getDrugRows({ activeOnly = false } = {}) {
     order by sort_order asc, name asc
   `;
 
-  const result = await dbQuery(sql);
+  const result = await runQuery(client, sql);
   return result.rows || [];
 }
 
-async function getDrugByKey(drugKey) {
+async function getDrugByKey(drugKey, client = null) {
   const key = normalizeDrugKey(drugKey);
   if (!key) {
     return null;
   }
 
-  const result = await dbQuery(
+  const result = await runQuery(
+    client,
     `
       select
         lower(key) as key,
@@ -524,6 +566,51 @@ async function getDrugByKey(drugKey) {
         updated_at
       from public.drugs
       where lower(key) = $1
+      limit 1
+    `,
+    [key],
+  );
+
+  return result.rows[0] || null;
+}
+
+async function purgeExpiredReservations(client = null) {
+  await runQuery(client, 'delete from public.drug_reservations where expires_at <= timezone(\'utc\', now())');
+}
+
+async function getReservationRows(client = null) {
+  const result = await runQuery(
+    client,
+    `
+      select
+        lower(drug_key) as drug_key,
+        holder_token,
+        expires_at
+      from public.drug_reservations
+      where expires_at > timezone('utc', now())
+      order by created_at asc
+    `,
+  );
+
+  return result.rows || [];
+}
+
+async function getReservationByDrugKey(drugKey, client = null) {
+  const key = normalizeDrugKey(drugKey);
+  if (!key) {
+    return null;
+  }
+
+  const result = await runQuery(
+    client,
+    `
+      select
+        lower(drug_key) as drug_key,
+        holder_token,
+        expires_at
+      from public.drug_reservations
+      where lower(drug_key) = $1
+        and expires_at > timezone('utc', now())
       limit 1
     `,
     [key],
@@ -546,18 +633,42 @@ function createTakenMap(submissions) {
   return takenMap;
 }
 
-function combineDrugsWithTaken(drugs, takenMap) {
+function createReservationMap(reservations) {
+  const reservationMap = new Map();
+  reservations.forEach((reservation) => {
+    reservationMap.set(normalizeDrugKey(reservation.drug_key), {
+      holder_token: reservation.holder_token,
+      expires_at: reservation.expires_at,
+    });
+  });
+
+  return reservationMap;
+}
+
+function combineDrugsWithLocks(drugs, takenMap, reservationMap, currentHolderToken = '') {
+  const holderToken = toCleanString(currentHolderToken);
+
   return drugs.map((drug) => {
-    const takenBy = takenMap.get(normalizeDrugKey(drug.key)) || null;
+    const normalizedKey = normalizeDrugKey(drug.key);
+    const takenBy = takenMap.get(normalizedKey) || null;
+    const reservation = reservationMap.get(normalizedKey) || null;
+    const isReserved = !takenBy && Boolean(reservation);
+    const reservedByCurrentHolder =
+      isReserved && holderToken && reservation && reservation.holder_token === holderToken;
+
     return {
       ...drug,
       is_taken: Boolean(takenBy),
       taken_by: takenBy,
+      is_reserved: isReserved,
+      reserved_until: reservation ? reservation.expires_at : null,
+      reserved_by_current_holder: Boolean(reservedByCurrentHolder),
+      is_locked: Boolean(takenBy) || isReserved,
     };
   });
 }
 
-async function getDrugTakenBySubmission(drugKey, excludeSubmissionId = null) {
+async function getDrugTakenBySubmission(drugKey, excludeSubmissionId = null, client = null) {
   const values = [normalizeDrugKey(drugKey)];
   let sql = `
     select id, team_number, drug_key
@@ -572,7 +683,7 @@ async function getDrugTakenBySubmission(drugKey, excludeSubmissionId = null) {
 
   sql += ' order by created_at asc limit 1';
 
-  const result = await dbQuery(sql, values);
+  const result = await runQuery(client, sql, values);
   return result.rows[0] || null;
 }
 
@@ -586,13 +697,24 @@ function requireAdmin(req, res) {
   return true;
 }
 
-async function handlePublicDrugs(res) {
+async function handlePublicDrugs(res, requestUrl) {
   try {
-    const [drugs, submissions] = await Promise.all([getDrugRows({ activeOnly: false }), getSubmissionRows()]);
+    const currentHolderToken = toCleanString(requestUrl?.searchParams?.get('holderToken'));
+    await purgeExpiredReservations();
+
+    const [drugs, submissions, reservations] = await Promise.all([
+      getDrugRows({ activeOnly: false }),
+      getSubmissionRows(),
+      getReservationRows(),
+    ]);
+
     const takenMap = createTakenMap(submissions);
+    const reservationMap = createReservationMap(reservations);
 
     sendJson(res, 200, {
-      drugs: combineDrugsWithTaken(drugs, takenMap),
+      drugs: combineDrugsWithLocks(drugs, takenMap, reservationMap, currentHolderToken),
+      reservation_ttl_minutes: RESERVATION_TTL_MINUTES,
+      heartbeat_seconds: RESERVATION_HEARTBEAT_SECONDS,
     });
   } catch (error) {
     if (isSchemaMigrationError(error)) {
@@ -607,7 +729,136 @@ async function handlePublicDrugs(res) {
   }
 }
 
-async function insertSubmission(cleaned) {
+async function handlePublicUpsertReservation(req, res) {
+  let requestBody;
+
+  try {
+    requestBody = await parseJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+    return;
+  }
+
+  const { errors, cleaned } = normalizeReservationPayload(requestBody, { requireHolderToken: false });
+  if (errors.length > 0) {
+    sendJson(res, 400, { error: errors.join(' ') });
+    return;
+  }
+
+  const holderToken = cleaned.holder_token || randomUUID();
+
+  try {
+    await purgeExpiredReservations();
+
+    const selectedDrug = await getDrugByKey(cleaned.drug_key);
+    if (!selectedDrug) {
+      sendJson(res, 404, { error: 'Drug not found.' });
+      return;
+    }
+
+    if (!selectedDrug.is_active) {
+      sendJson(res, 409, { error: 'This drug is currently inactive.' });
+      return;
+    }
+
+    const takenBy = await getDrugTakenBySubmission(cleaned.drug_key);
+    if (takenBy) {
+      sendJson(res, 409, { error: `This drug is already taken by Group ${takenBy.team_number}.` });
+      return;
+    }
+
+    const reservationResult = await dbQuery(
+      `
+        insert into public.drug_reservations (drug_key, holder_token, expires_at)
+        values ($1, $2, timezone('utc', now()) + interval '${RESERVATION_TTL_MINUTES} minutes')
+        on conflict (drug_key)
+        do update
+          set expires_at = timezone('utc', now()) + interval '${RESERVATION_TTL_MINUTES} minutes',
+              updated_at = timezone('utc', now())
+        where public.drug_reservations.holder_token = excluded.holder_token
+        returning
+          lower(drug_key) as drug_key,
+          holder_token,
+          expires_at
+      `,
+      [cleaned.drug_key, holderToken],
+    );
+
+    if (reservationResult.rows.length === 0) {
+      const currentReservation = await getReservationByDrugKey(cleaned.drug_key);
+      if (currentReservation && currentReservation.holder_token !== holderToken) {
+        sendJson(res, 409, { error: 'This drug is currently reserved by another group. Please choose another one.' });
+        return;
+      }
+
+      sendJson(res, 409, { error: 'Failed to reserve this drug. Please try again.' });
+      return;
+    }
+
+    sendJson(res, 200, {
+      message: 'Reservation is active.',
+      reservation: reservationResult.rows[0],
+      reservation_ttl_minutes: RESERVATION_TTL_MINUTES,
+      heartbeat_seconds: RESERVATION_HEARTBEAT_SECONDS,
+    });
+  } catch (error) {
+    if (isSchemaMigrationError(error)) {
+      sendMigrationError(res);
+      return;
+    }
+
+    sendJson(res, 500, {
+      error: 'Failed to reserve drug.',
+      details: getDbErrorMessage(error),
+    });
+  }
+}
+
+async function handlePublicReleaseReservation(req, res) {
+  let requestBody;
+
+  try {
+    requestBody = await parseJsonBody(req);
+  } catch (error) {
+    sendJson(res, 400, { error: error.message });
+    return;
+  }
+
+  const { errors, cleaned } = normalizeReservationPayload(requestBody, { requireHolderToken: true });
+  if (errors.length > 0) {
+    sendJson(res, 400, { error: errors.join(' ') });
+    return;
+  }
+
+  try {
+    await purgeExpiredReservations();
+
+    const result = await dbQuery(
+      `
+        delete from public.drug_reservations
+        where lower(drug_key) = $1 and holder_token = $2
+        returning lower(drug_key) as drug_key
+      `,
+      [cleaned.drug_key, cleaned.holder_token],
+    );
+
+    sendJson(res, 200, {
+      message: result.rows.length > 0 ? 'Reservation released.' : 'No active reservation found.',
+    });
+  } catch (error) {
+    if (isSchemaMigrationError(error)) {
+      sendMigrationError(res);
+      return;
+    }
+
+    sendJson(res, 500, {
+      error: 'Failed to release reservation.',
+      details: getDbErrorMessage(error),
+    });
+  }
+}
+
+async function insertSubmission(cleaned, client = null) {
   const values = [
     cleaned.course_group,
     cleaned.team_number,
@@ -619,7 +870,8 @@ async function insertSubmission(cleaned) {
     cleaned.drug_name,
   ];
 
-  const result = await dbQuery(
+  const result = await runQuery(
+    client,
     `
       insert into public.group_submissions
         (course_group, team_number, leader_name, leader_email, leader_phone, students, drug_key, drug_name)
@@ -660,32 +912,77 @@ async function handlePublicSubmission(req, res) {
     return;
   }
 
+  const holderToken = toCleanString(requestBody.holderToken ?? requestBody.holder_token);
+  if (!holderToken) {
+    sendJson(res, 400, { error: 'Reservation token is required. Please re-open the group form and select the drug.' });
+    return;
+  }
+
+  const client = await getPool().connect();
+  let transactionStarted = false;
+
   try {
-    const selectedDrug = await getDrugByKey(cleaned.drug_key);
+    await client.query('begin');
+    transactionStarted = true;
+    await purgeExpiredReservations(client);
+
+    const selectedDrug = await getDrugByKey(cleaned.drug_key, client);
     if (!selectedDrug) {
+      await client.query('rollback');
       sendJson(res, 400, { error: 'This drug does not exist.' });
       return;
     }
 
     if (!selectedDrug.is_active) {
+      await client.query('rollback');
       sendJson(res, 400, { error: 'This drug is not available for selection.' });
       return;
     }
 
-    const takenBy = await getDrugTakenBySubmission(cleaned.drug_key);
+    const reservation = await getReservationByDrugKey(cleaned.drug_key, client);
+    if (!reservation) {
+      await client.query('rollback');
+      sendJson(res, 409, {
+        error: 'Drug reservation is missing or expired. Please return to the drug list and select again.',
+      });
+      return;
+    }
+
+    if (reservation.holder_token !== holderToken) {
+      await client.query('rollback');
+      sendJson(res, 409, { error: 'This drug is currently reserved by another group.' });
+      return;
+    }
+
+    const takenBy = await getDrugTakenBySubmission(cleaned.drug_key, null, client);
     if (takenBy) {
+      await client.query('rollback');
       sendJson(res, 409, { error: `This drug is already taken by Group ${takenBy.team_number}.` });
       return;
     }
 
     cleaned.drug_name = selectedDrug.name;
 
-    const submission = await insertSubmission(cleaned);
+    const submission = await insertSubmission(cleaned, client);
+    await runQuery(client, 'delete from public.drug_reservations where lower(drug_key) = $1 and holder_token = $2', [
+      cleaned.drug_key,
+      holderToken,
+    ]);
+    await client.query('commit');
+
     sendJson(res, 201, {
       message: 'Group submission saved successfully.',
       submission,
     });
   } catch (error) {
+    if (transactionStarted) {
+      try {
+        await client.query('rollback');
+      } catch {
+        // Ignore rollback errors and return original failure.
+      }
+    }
+
     const mapped = mapSubmissionConstraintError(error);
     if (mapped) {
       sendJson(res, mapped.status, { error: mapped.message });
@@ -701,16 +998,26 @@ async function handlePublicSubmission(req, res) {
       error: 'Failed to save submission.',
       details: getDbErrorMessage(error),
     });
+  } finally {
+    client.release();
   }
 }
 
 async function handleAdminOverview(res) {
   try {
-    const [drugs, submissions] = await Promise.all([getDrugRows({ activeOnly: false }), getSubmissionRows()]);
+    await purgeExpiredReservations();
+
+    const [drugs, submissions, reservations] = await Promise.all([
+      getDrugRows({ activeOnly: false }),
+      getSubmissionRows(),
+      getReservationRows(),
+    ]);
+
     const takenMap = createTakenMap(submissions);
+    const reservationMap = createReservationMap(reservations);
 
     sendJson(res, 200, {
-      drugs: combineDrugsWithTaken(drugs, takenMap),
+      drugs: combineDrugsWithLocks(drugs, takenMap, reservationMap),
       submissions,
     });
   } catch (error) {
@@ -758,6 +1065,7 @@ async function handleAdminCreateSubmission(req, res) {
     cleaned.drug_name = selectedDrug.name;
 
     const submission = await insertSubmission(cleaned);
+    await dbQuery('delete from public.drug_reservations where lower(drug_key) = $1', [cleaned.drug_key]);
     sendJson(res, 201, {
       message: 'Submission created.',
       submission,
@@ -888,6 +1196,10 @@ async function handleAdminUpdateSubmission(req, res, id) {
       return;
     }
 
+    if (cleaned.drug_key) {
+      await dbQuery('delete from public.drug_reservations where lower(drug_key) = $1', [cleaned.drug_key]);
+    }
+
     sendJson(res, 200, {
       message: 'Submission updated.',
       submission: result.rows[0],
@@ -935,12 +1247,19 @@ async function handleAdminDeleteSubmission(res, id) {
 
 async function handleAdminListDrugs(res) {
   try {
-    const submissions = await getSubmissionRows();
+    await purgeExpiredReservations();
+
+    const [submissions, drugs, reservations] = await Promise.all([
+      getSubmissionRows(),
+      getDrugRows({ activeOnly: false }),
+      getReservationRows(),
+    ]);
+
     const takenMap = createTakenMap(submissions);
-    const drugs = await getDrugRows({ activeOnly: false });
+    const reservationMap = createReservationMap(reservations);
 
     sendJson(res, 200, {
-      drugs: combineDrugsWithTaken(drugs, takenMap),
+      drugs: combineDrugsWithLocks(drugs, takenMap, reservationMap),
     });
   } catch (error) {
     if (isSchemaMigrationError(error)) {
@@ -1094,6 +1413,10 @@ async function handleAdminUpdateDrug(req, res, keyParam) {
       ]);
     }
 
+    if (cleaned.is_active === false) {
+      await dbQuery('delete from public.drug_reservations where lower(drug_key) = $1', [key]);
+    }
+
     sendJson(res, 200, {
       message: 'Drug updated.',
       drug: updatedDrug,
@@ -1131,6 +1454,8 @@ async function handleAdminDeleteDrug(res, keyParam) {
       return;
     }
 
+    await dbQuery('delete from public.drug_reservations where lower(drug_key) = $1', [key]);
+
     const result = await dbQuery(
       'delete from public.drugs where lower(key) = $1 returning lower(key) as key, name, is_active, sort_order',
       [key],
@@ -1158,7 +1483,7 @@ async function handleAdminDeleteDrug(res, keyParam) {
   }
 }
 
-async function handleApi(req, res, pathname) {
+async function handleApi(req, res, pathname, requestUrl) {
   if (!hasDatabaseConfig()) {
     sendJson(res, 500, {
       error: 'Server is missing database environment variables.',
@@ -1168,7 +1493,17 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/public/drugs' && req.method === 'GET') {
-    await handlePublicDrugs(res);
+    await handlePublicDrugs(res, requestUrl);
+    return;
+  }
+
+  if (pathname === '/api/public/reservations' && req.method === 'POST') {
+    await handlePublicUpsertReservation(req, res);
+    return;
+  }
+
+  if (pathname === '/api/public/reservations' && req.method === 'DELETE') {
+    await handlePublicReleaseReservation(req, res);
     return;
   }
 
@@ -1248,7 +1583,7 @@ async function handleRequest(req, res) {
 
   try {
     if (pathname.startsWith('/api/')) {
-      await handleApi(req, res, pathname);
+      await handleApi(req, res, pathname, requestUrl);
       return;
     }
 

@@ -9,6 +9,35 @@ create table if not exists public.drugs (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.drug_reservations (
+  drug_key text primary key,
+  holder_token text not null,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
+);
+
+alter table public.drug_reservations add column if not exists drug_key text;
+alter table public.drug_reservations add column if not exists holder_token text;
+alter table public.drug_reservations add column if not exists expires_at timestamptz;
+alter table public.drug_reservations add column if not exists created_at timestamptz not null default timezone('utc', now());
+alter table public.drug_reservations add column if not exists updated_at timestamptz not null default timezone('utc', now());
+
+update public.drug_reservations
+set drug_key = lower(drug_key)
+where drug_key is not null and drug_key <> lower(drug_key);
+
+create unique index if not exists drug_reservations_drug_key_unique_idx on public.drug_reservations ((lower(drug_key)));
+create index if not exists drug_reservations_expires_at_idx on public.drug_reservations (expires_at);
+
+alter table public.drug_reservations
+  alter column drug_key set not null,
+  alter column holder_token set not null,
+  alter column expires_at set not null;
+
+delete from public.drug_reservations
+where expires_at <= timezone('utc', now());
+
 alter table public.drugs add column if not exists key text;
 alter table public.drugs add column if not exists name text;
 alter table public.drugs add column if not exists is_active boolean not null default true;
@@ -164,5 +193,11 @@ execute function public.set_updated_at_timestamp();
 drop trigger if exists set_drugs_updated_at on public.drugs;
 create trigger set_drugs_updated_at
 before update on public.drugs
+for each row
+execute function public.set_updated_at_timestamp();
+
+drop trigger if exists set_drug_reservations_updated_at on public.drug_reservations;
+create trigger set_drug_reservations_updated_at
+before update on public.drug_reservations
 for each row
 execute function public.set_updated_at_timestamp();

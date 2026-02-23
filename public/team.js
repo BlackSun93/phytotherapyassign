@@ -14,14 +14,72 @@ const preferredDrugKey =
   new URLSearchParams(window.location.search).get('drugId') ||
   '';
 
+const HEARTBEAT_INTERVAL_MS = 30 * 1000;
+
 let drugs = [];
 let students = [];
 let selectedStudentIndex = -1;
 let editingStudentIndex = -1;
+let selectedDrugKey = preferredDrugKey;
+let heartbeatTimer = null;
+let reservation = {
+  drugKey: '',
+  holderToken: '',
+  expiresAt: null,
+};
 
 function setStatus(message, type = 'success') {
   statusEl.textContent = message;
   statusEl.className = `status ${type}`;
+}
+
+function reservationStorageKey(drugKey) {
+  return `phytotherapy-reservation:${drugKey}`;
+}
+
+function getStoredReservationToken(drugKey) {
+  if (!drugKey) {
+    return '';
+  }
+
+  try {
+    return window.sessionStorage.getItem(reservationStorageKey(drugKey)) || '';
+  } catch {
+    return '';
+  }
+}
+
+function setStoredReservationToken(drugKey, holderToken) {
+  if (!drugKey || !holderToken) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(reservationStorageKey(drugKey), holderToken);
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function clearStoredReservationToken(drugKey) {
+  if (!drugKey) {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(reservationStorageKey(drugKey));
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function getDrugListUrl() {
+  const tokenCandidate = reservation.holderToken || getStoredReservationToken(selectedDrugKey || preferredDrugKey);
+  if (!tokenCandidate) {
+    return '/api/public/drugs';
+  }
+
+  return `/api/public/drugs?holderToken=${encodeURIComponent(tokenCandidate)}`;
 }
 
 function parseStudentEntry(studentIdValue, studentNameValue) {
@@ -131,58 +189,68 @@ function removeSelectedStudent() {
   setStatus('Student removed.', 'success');
 }
 
-function getAvailableDrugsWithSelection() {
-  return drugs.filter((drug) => {
-    if (!drug.is_active) {
-      return false;
-    }
-    if (!drug.is_taken) {
-      return true;
-    }
-    return drug.key === preferredDrugKey;
-  });
+function isSelectableDrug(drug) {
+  if (!drug.is_active) {
+    return false;
+  }
+
+  if (drug.is_taken) {
+    return false;
+  }
+
+  if (!drug.is_reserved) {
+    return true;
+  }
+
+  return Boolean(drug.reserved_by_current_holder);
+}
+
+function getSelectableDrugs() {
+  return drugs.filter((drug) => isSelectableDrug(drug));
+}
+
+function syncSubmitEnabled() {
+  const selectedKey = drugSelect.value;
+  const hasReservation =
+    Boolean(reservation.holderToken) && Boolean(selectedKey) && reservation.drugKey === selectedKey;
+  submitButton.disabled = !hasReservation;
 }
 
 function renderDrugOptions() {
-  const availableDrugs = getAvailableDrugsWithSelection();
+  const selectableDrugs = getSelectableDrugs();
   drugSelect.innerHTML = '';
 
   const placeholder = document.createElement('option');
   placeholder.value = '';
-  placeholder.textContent = availableDrugs.length ? 'Select drug' : 'No available drugs';
+  placeholder.textContent = selectableDrugs.length ? 'Select drug' : 'No available drugs';
   placeholder.disabled = true;
   placeholder.selected = true;
   drugSelect.appendChild(placeholder);
 
-  availableDrugs.forEach((drug) => {
+  selectableDrugs.forEach((drug) => {
     const option = document.createElement('option');
     option.value = drug.key;
     option.textContent = drug.name;
     drugSelect.appendChild(option);
   });
 
-  if (availableDrugs.length === 0) {
-    setStatus('No available drugs right now. Please return to drug list.', 'error');
-    submitButton.disabled = true;
-    return;
-  }
-
-  const selectedDrug = availableDrugs.find((drug) => drug.key === preferredDrugKey);
-  if (selectedDrug) {
-    drugSelect.value = selectedDrug.key;
+  const stillAvailable = selectableDrugs.find((drug) => drug.key === selectedDrugKey);
+  if (stillAvailable) {
+    drugSelect.value = selectedDrugKey;
   } else {
-    drugSelect.selectedIndex = 1;
-    if (preferredDrugKey) {
-      setStatus('Selected drug is no longer available. Please choose another one.', 'error');
-    }
+    selectedDrugKey = '';
   }
 
-  submitButton.disabled = false;
+  if (!selectableDrugs.length) {
+    setStatus('No available drugs right now. Please return to the drug list.', 'error');
+  }
+
+  syncSubmitEnabled();
 }
 
 async function loadDrugs() {
   try {
-    const response = await fetch('/api/public/drugs', {
+    const response = await fetch(getDrugListUrl(), {
       headers: {
         'Cache-Control': 'no-store',
       },
@@ -198,6 +266,167 @@ async function loadDrugs() {
   } catch (error) {
     setStatus(error.message, 'error');
   }
+}
+
+function startHeartbeat() {
+  stopHeartbeat();
+
+  heartbeatTimer = window.setInterval(async () => {
+    if (!reservation.drugKey || !reservation.holderToken) {
+      return;
+    }
+
+    const refreshed = await reserveDrug(reservation.drugKey, {
+      silent: true,
+      allowStoredToken: false,
+      releaseCurrentFirst: false,
+    });
+
+    if (!refreshed) {
+      stopHeartbeat();
+      clearStoredReservationToken(reservation.drugKey);
+      reservation = {
+        drugKey: '',
+        holderToken: '',
+        expiresAt: null,
+      };
+      syncSubmitEnabled();
+      await loadDrugs();
+      setStatus('Your reservation expired or was lost. Please select the drug again.', 'error');
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+}
+
+function stopHeartbeat() {
+  if (heartbeatTimer) {
+    window.clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+async function releaseReservation(drugKey, holderToken, { silent = true } = {}) {
+  if (!drugKey || !holderToken) {
+    return true;
+  }
+
+  try {
+    await fetch('/api/public/reservations', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        drugKey,
+        holderToken,
+      }),
+    });
+
+    clearStoredReservationToken(drugKey);
+    return true;
+  } catch (error) {
+    if (!silent) {
+      setStatus(error.message || 'Failed to release reservation.', 'error');
+    }
+
+    return false;
+  }
+}
+
+async function reserveDrug(
+  drugKey,
+  {
+    silent = false,
+    allowStoredToken = true,
+    releaseCurrentFirst = true,
+  } = {},
+) {
+  if (!drugKey) {
+    return false;
+  }
+
+  const previousReservation = { ...reservation };
+
+  if (releaseCurrentFirst && previousReservation.drugKey && previousReservation.drugKey !== drugKey) {
+    stopHeartbeat();
+    await releaseReservation(previousReservation.drugKey, previousReservation.holderToken, { silent: true });
+    reservation = {
+      drugKey: '',
+      holderToken: '',
+      expiresAt: null,
+    };
+  }
+
+  let holderToken = '';
+  if (reservation.drugKey === drugKey && reservation.holderToken) {
+    holderToken = reservation.holderToken;
+  } else if (allowStoredToken) {
+    holderToken = getStoredReservationToken(drugKey);
+  }
+
+  try {
+    const response = await fetch('/api/public/reservations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        drugKey,
+        holderToken,
+      }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || 'Failed to reserve drug');
+    }
+
+    reservation = {
+      drugKey: result.reservation.drug_key,
+      holderToken: result.reservation.holder_token,
+      expiresAt: result.reservation.expires_at,
+    };
+
+    selectedDrugKey = reservation.drugKey;
+    drugSelect.value = reservation.drugKey;
+    setStoredReservationToken(reservation.drugKey, reservation.holderToken);
+    startHeartbeat();
+    syncSubmitEnabled();
+
+    if (!silent) {
+      setStatus('Drug reserved for 10 minutes. Keep this page open until submit.', 'success');
+    }
+
+    return true;
+  } catch (error) {
+    reservation = {
+      drugKey: '',
+      holderToken: '',
+      expiresAt: null,
+    };
+    syncSubmitEnabled();
+
+    if (!silent) {
+      setStatus(error.message, 'error');
+    }
+
+    return false;
+  }
+}
+
+async function switchSelectedDrugReservation(drugKey) {
+  if (!drugKey) {
+    selectedDrugKey = '';
+    syncSubmitEnabled();
+    return;
+  }
+
+  const reserved = await reserveDrug(drugKey, { silent: false });
+  if (!reserved) {
+    selectedDrugKey = '';
+    drugSelect.value = '';
+  }
+
+  await loadDrugs();
 }
 
 addStudentBtn.addEventListener('click', addOrSaveStudent);
@@ -219,6 +448,12 @@ studentNameEntryInput.addEventListener('keydown', (event) => {
 editSelectedBtn.addEventListener('click', editSelectedStudent);
 removeSelectedBtn.addEventListener('click', removeSelectedStudent);
 
+drugSelect.addEventListener('change', async (event) => {
+  const nextDrugKey = event.target.value;
+  selectedDrugKey = nextDrugKey;
+  await switchSelectedDrugReservation(nextDrugKey);
+});
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   setStatus('');
@@ -228,12 +463,19 @@ form.addEventListener('submit', async (event) => {
     return;
   }
 
+  const selectedKey = drugSelect.value;
+  if (!selectedKey || reservation.drugKey !== selectedKey || !reservation.holderToken) {
+    setStatus('Please select a drug and wait until reservation is active.', 'error');
+    return;
+  }
+
   const payload = {
     teamNumber: Number.parseInt(document.getElementById('team-number').value, 10),
     leaderName: document.getElementById('leader-name').value.trim(),
     leaderEmail: document.getElementById('leader-email').value.trim(),
     leaderPhone: document.getElementById('leader-phone').value.trim(),
-    drugKey: drugSelect.value,
+    drugKey: selectedKey,
+    holderToken: reservation.holderToken,
     students,
   };
 
@@ -254,9 +496,18 @@ form.addEventListener('submit', async (event) => {
       throw new Error(result.error || 'Submission failed');
     }
 
+    clearStoredReservationToken(reservation.drugKey);
+    stopHeartbeat();
+    reservation = {
+      drugKey: '',
+      holderToken: '',
+      expiresAt: null,
+    };
+
     setStatus('Submission saved and drug locked successfully.', 'success');
     form.reset();
     students = [];
+    selectedDrugKey = '';
     selectedStudentIndex = -1;
     resetStudentEditor();
     renderStudents();
@@ -265,9 +516,56 @@ form.addEventListener('submit', async (event) => {
     setStatus(error.message, 'error');
     await loadDrugs();
   } finally {
-    submitButton.disabled = false;
+    syncSubmitEnabled();
   }
 });
 
-renderStudents();
-loadDrugs();
+window.addEventListener('pagehide', () => {
+  if (!reservation.drugKey || !reservation.holderToken) {
+    return;
+  }
+
+  const payload = JSON.stringify({
+    drugKey: reservation.drugKey,
+    holderToken: reservation.holderToken,
+  });
+
+  try {
+    fetch('/api/public/reservations', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: payload,
+      keepalive: true,
+    });
+  } catch {
+    // Ignore cleanup errors on page close.
+  }
+
+  clearStoredReservationToken(reservation.drugKey);
+  stopHeartbeat();
+});
+
+async function initialize() {
+  renderStudents();
+  await loadDrugs();
+
+  if (!preferredDrugKey) {
+    return;
+  }
+
+  selectedDrugKey = preferredDrugKey;
+  const reserved = await reserveDrug(preferredDrugKey, { silent: true });
+
+  if (!reserved) {
+    selectedDrugKey = '';
+    setStatus('Selected drug is no longer available. Please choose another one.', 'error');
+  } else {
+    setStatus('Selected drug reserved for your group. Complete submission within 10 minutes.', 'success');
+  }
+
+  await loadDrugs();
+}
+
+initialize();
