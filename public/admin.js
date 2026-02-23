@@ -10,7 +10,6 @@ const clearDrugFormBtn = document.getElementById('clear-drug-form');
 const drugsTable = document.getElementById('drugs-table');
 const drugOriginalKeyInput = document.getElementById('drug-original-key');
 const drugNameInput = document.getElementById('admin-drug-name');
-const drugKeyInput = document.getElementById('admin-drug-key');
 const drugSortInput = document.getElementById('admin-drug-sort');
 const drugActiveInput = document.getElementById('admin-drug-active');
 
@@ -169,16 +168,13 @@ function renderDrugsTable() {
 
   if (!drugs.length) {
     const empty = document.createElement('tr');
-    empty.innerHTML = '<td colspan="6">No drugs yet.</td>';
+    empty.innerHTML = '<td colspan="5">No drugs yet.</td>';
     drugsTable.appendChild(empty);
     return;
   }
 
   drugs.forEach((drug) => {
     const tr = document.createElement('tr');
-
-    const keyTd = document.createElement('td');
-    keyTd.textContent = drug.key;
 
     const nameTd = document.createElement('td');
     nameTd.textContent = drug.name;
@@ -219,7 +215,7 @@ function renderDrugsTable() {
     });
 
     actionsTd.append(editBtn, deleteBtn);
-    tr.append(keyTd, nameTd, activeTd, takenTd, sortTd, actionsTd);
+    tr.append(nameTd, activeTd, takenTd, sortTd, actionsTd);
     drugsTable.appendChild(tr);
   });
 }
@@ -227,8 +223,6 @@ function renderDrugsTable() {
 function fillDrugForm(drug) {
   drugOriginalKeyInput.value = drug.key;
   drugNameInput.value = drug.name;
-  drugKeyInput.value = drug.key;
-  drugKeyInput.disabled = true;
   drugSortInput.value = drug.sort_order ?? 0;
   drugActiveInput.checked = Boolean(drug.is_active);
 }
@@ -237,8 +231,6 @@ function clearDrugForm() {
   drugForm.reset();
   drugOriginalKeyInput.value = '';
   drugNameInput.value = '';
-  drugKeyInput.value = '';
-  drugKeyInput.disabled = false;
   drugSortInput.value = '';
   drugActiveInput.checked = true;
 }
@@ -309,10 +301,6 @@ drugForm.addEventListener('submit', async (event) => {
     sortOrder: Number.parseInt(drugSortInput.value || '0', 10),
     isActive: Boolean(drugActiveInput.checked),
   };
-
-  if (!originalKey) {
-    payload.key = drugKeyInput.value.trim().toLowerCase();
-  }
 
   try {
     if (originalKey) {

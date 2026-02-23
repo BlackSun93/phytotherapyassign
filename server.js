@@ -204,6 +204,18 @@ function slugifyDrugKey(value) {
   return slug;
 }
 
+function normalizeBaseDrugKey(value) {
+  const normalized = slugifyDrugKey(value);
+  const fallback = normalized || 'drug';
+  return fallback.slice(0, 64);
+}
+
+function buildSuffixedDrugKey(baseKey, suffix) {
+  const suffixText = `-${suffix}`;
+  const maxBaseLength = Math.max(1, 64 - suffixText.length);
+  return `${baseKey.slice(0, maxBaseLength)}${suffixText}`;
+}
+
 function parseBooleanOrNull(value) {
   if (value === undefined || value === null || value === '') {
     return null;
@@ -493,7 +505,7 @@ function mapDrugConstraintError(error) {
 
   return {
     status: 409,
-    message: 'Drug key already exists. Use another key.',
+    message: 'A drug with similar name already exists. Please retry or slightly change the name.',
   };
 }
 
@@ -571,6 +583,26 @@ async function getDrugByKey(drugKey, client = null) {
   );
 
   return result.rows[0] || null;
+}
+
+async function getNextAvailableDrugKey(baseKey, client = null) {
+  const normalizedBaseKey = normalizeBaseDrugKey(baseKey);
+
+  const baseKeyDrug = await getDrugByKey(normalizedBaseKey, client);
+  if (!baseKeyDrug) {
+    return normalizedBaseKey;
+  }
+
+  for (let suffix = 2; suffix <= 999; suffix += 1) {
+    const candidate = buildSuffixedDrugKey(normalizedBaseKey, suffix);
+    // eslint-disable-next-line no-await-in-loop
+    const candidateDrug = await getDrugByKey(candidate, client);
+    if (!candidateDrug) {
+      return candidate;
+    }
+  }
+
+  return buildSuffixedDrugKey(normalizedBaseKey, Date.now().toString(36));
 }
 
 async function purgeExpiredReservations(client = null) {
@@ -1279,12 +1311,13 @@ async function handleAdminCreateDrug(req, res) {
     return;
   }
 
-  if (!cleaned.key || !DRUG_KEY_REGEX.test(cleaned.key)) {
-    sendJson(res, 400, { error: 'Drug key must use lowercase letters, numbers, and dashes only.' });
-    return;
-  }
-
   try {
+    const generatedKey = await getNextAvailableDrugKey(cleaned.key || cleaned.name);
+    if (!generatedKey || !DRUG_KEY_REGEX.test(generatedKey)) {
+      sendJson(res, 400, { error: 'Failed to generate a valid drug key from the name.' });
+      return;
+    }
+
     const result = await dbQuery(
       `
         insert into public.drugs (key, name, is_active, sort_order)
@@ -1297,7 +1330,7 @@ async function handleAdminCreateDrug(req, res) {
           created_at,
           updated_at
       `,
-      [cleaned.key, cleaned.name, cleaned.is_active, cleaned.sort_order],
+      [generatedKey, cleaned.name, cleaned.is_active, cleaned.sort_order],
     );
 
     sendJson(res, 201, {
